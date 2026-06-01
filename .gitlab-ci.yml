@@ -1,0 +1,24 @@
+stages:
+  - build
+  - process
+  - notify
+
+calculate:
+  stage: process
+  image: python:3.10-slim
+  script:
+    - pip install --no-cache-dir -r requirements.txt 2>/dev/null || echo "No requirements.txt found; skipping pip install"
+    - python engine_v5_2.py
+  artifacts:
+    paths:
+      - "*.pdf"
+    expire_in: 1 week
+
+ai_analysis:
+  stage: notify
+  image: python:3.10-slim
+  script:
+    - apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+    - curl -X POST -H "Content-Type: application/json" -d '{"status":"completed","project":"karate-ashi","artifact":"PDF generated"}' https://your-webhook-url.example.com/ai-integration
+  needs:
+    - calculate
