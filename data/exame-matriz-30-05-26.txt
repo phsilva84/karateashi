@@ -1,0 +1,55 @@
+Avaliador 1 Sensei Paulo:
+Faixa Branca:
+Nome do aluno: Isabelly
+Kihon: cod:1,7
+Kata: cod:1,1,8
+Bunkai: cod:4
+Kumite: cod:4,8,11,7,9
+Observação: Chutes Firmes.
+Nome do aluno: Nicole
+Kihon: cod:1,3
+Kata: cod:1,8
+Bunkai: cod:3,2,11
+Kumite: cod:4
+Observação: Boa concentracao.
+Nome do aluno: Adriana
+Kihon: cod:1,1,1,7,3
+Kata: cod:3,2,8,6
+Bunkai: cod:4,3,11
+Kumite: cod:4,3,6,8,11,9,10
+Observação: Cabeça baixa durante a execução das técnicas.
+
+
+Avaliador 1 Sensei Paulo:
+Faixa Amarela:
+Nome do aluno: Wesley
+Kihon: cod:1,1,1,1,1,4,2,7
+Kata: cod:1,1,1,7,2
+Bunkai: cod:3,4,1
+Kumite: cod:4,6,8,9,2
+Observação: Melhorar as Bases
+
+Avaliador 1 Sensei Paulo:
+Faixa Laranja:
+Nome do aluno: Daniel
+Kihon: cod:1,1,2,2,3,9
+Kata: cod:5,6,1,2
+Bunkai: cod:2,6,1
+Kumite: cod:11,9,6,4
+Observação: Mais foco durante a execução das técnicas(cabelo), Olhar deve acompanhar as técnicas.
+
+Avaliador 1 Sensei Paulo:
+Faixa Verde:
+Nome do aluno: Saulo 
+Kihon: cod:9,3,1,2
+Kata: cod:1,1,6,2,3,5
+Bunkai: cod:3,1
+Kumite: cod:12,11,4,3,8
+Observação: Mais carga nos golpes
+
+Nome do aluno: Marcos 
+Kihon: cod:3,1,2,2,2
+Kata: cod:1,6,1,1,6,7,5,2
+Bunkai: cod:1,11,6
+Kumite: cod:11,12,8,4,9
+Observação: Melhorar as bases.
