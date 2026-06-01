@@ -29,7 +29,6 @@ jobs:
       - name: Run engine
         run: |
           set -euo pipefail
-          # Garante que a pasta de output existe antes do motor rodar
           mkdir -p output
           python core/engine.py
         shell: bash
@@ -37,21 +36,26 @@ jobs:
       - name: Upload output to Google Drive
         run: |
           set -euo pipefail
-          # Copia o conteúdo da pasta output para a raiz configurada no Drive
+          # Sincroniza todos os arquivos gerados (JSON e TXT dinâmicos)
           rclone copy output/ gdrive: -v
         shell: bash
 
       - name: Send Telegram notification with Master Report
-        # continue-on-error isola falhas de notificação do sucesso do pipeline
         continue-on-error: true
         env:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -euo pipefail
-          # Envia o Relatório Master (TXT) para os Senseis
-          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
-            -F chat_id="${TG_CHAT_ID}" \
-            -F document="@output/relatorio_master_dojo.txt" \
-            -F caption="Relatório Master do Dojo - Workflow concluído."
+          # Localiza o arquivo master gerado (o mais recente da pasta output)
+          MASTER_FILE=$(ls -t output/relatorio_master_dojo_*.txt | head -1)
+          
+          if [ -f "$MASTER_FILE" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
+              -F chat_id="${TG_CHAT_ID}" \
+              -F document="@$MASTER_FILE" \
+              -F caption="Relatório Master do Dojo - Exame Concluído."
+          else
+            echo "Aviso: Nenhum relatório master encontrado para envio."
+          fi
         shell: bash

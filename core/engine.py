@@ -1,11 +1,9 @@
 import json
 import logging
-import os
 import re
-import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 # Configuração de Logging
 logging.basicConfig(
@@ -18,8 +16,6 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path('data')
 PROCESSED_DIR = DATA_DIR / 'processed'
 OUTPUT_DIR = Path('output')
-OUTPUT_FILE_JSON = OUTPUT_DIR / 'relatorio_consolidado.json'
-OUTPUT_FILE_MASTER = OUTPUT_DIR / 'relatorio_master_dojo.txt'
 
 WEIGHT_TABLE: Dict[str, float] = {
     'A1': 1.0, 'A2': 2.0, 'A3': 1.5, 'A4': 2.5, 'A5': 3.0,
@@ -102,15 +98,15 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
         'descontos_detalhados': all_descontos
     }
 
-def gerar_relatorio_master(results: List[Dict[str, Any]]):
-    """Gera o resumo executivo em TXT para os Senseis."""
-    if not results: return
+def gerar_relatorio_master(results: List[Dict[str, Any]], suffix: str):
+    """Gera o resumo executivo dinâmico em TXT."""
+    output_file = OUTPUT_DIR / f"relatorio_master_dojo_{suffix}.txt"
     
     media_dojo = sum(r['nota_final'] for r in results) / len(results)
     contador_erros = Counter([d['codigo'] for r in results for d in r['descontos_detalhados']])
     
-    with open(OUTPUT_FILE_MASTER, 'w', encoding='utf-8') as f:
-        f.write("=== RELATÓRIO MASTER DO DOJO ===\n")
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(f"=== RELATÓRIO MASTER DO DOJO - {suffix.upper()} ===\n")
         f.write(f"Média Geral do Dojo: {media_dojo:.2f}\n\n")
         f.write("--- Desempenho por Aluno ---\n")
         for r in sorted(results, key=lambda x: x['nome']):
@@ -119,30 +115,43 @@ def gerar_relatorio_master(results: List[Dict[str, Any]]):
         f.write("\n--- Destaques Técnicos (Erros Frequentes) ---\n")
         for cod, qtd in contador_erros.most_common(5):
             f.write(f"{cod}: {qtd} ocorrências\n")
-    logger.info("Relatório Master salvo em %s", OUTPUT_FILE_MASTER)
+    logger.info("Relatório Master salvo em %s", output_file)
 
 def run():
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
     exame_files = sorted(DATA_DIR.glob('exame-*.txt'))
-    if not exame_files: return
+    if not exame_files:
+        logger.info("Nenhum arquivo de exame para processar.")
+        return
 
-    all_students = {}
     for filepath in exame_files:
+        # Extrai o sufixo (ex: matriz-30-05-26)
+        suffix = filepath.stem.replace('exame-', '')
+        logger.info(f"Processando exame do dojo: {suffix}")
+        
         students = parse_file(filepath)
+        all_students = {}
         for student, evals in students.items():
             all_students.setdefault(student, []).extend(evals)
-        # Move para processados
-        dest = PROCESSED_DIR / filepath.name
-        filepath.rename(dest)
+        
+        results = [compute_student_result(st, ev) for st, ev in all_students.items()]
 
-    results = [compute_student_result(st, ev) for st, ev in all_students.items()]
-
-    if results:
-        with open(OUTPUT_FILE_JSON, 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-        gerar_relatorio_master(results)
+        if results:
+            # Salva JSON dinâmico
+            json_file = OUTPUT_DIR / f"relatorio_consolidado_{suffix}.json"
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(results, f, ensure_ascii=False, indent=2)
+            
+            # Salva TXT dinâmico
+            gerar_relatorio_master(results, suffix)
+            
+            # Move para processados
+            dest = PROCESSED_DIR / filepath.name
+            filepath.rename(dest)
+        else:
+            logger.warning(f"Nenhum resultado processado para {filepath.name}")
 
 if __name__ == '__main__':
     run()
