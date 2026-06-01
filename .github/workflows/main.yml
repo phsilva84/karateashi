@@ -1,62 +1,51 @@
-name: Karateashi Pipeline
-
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+name: CI
+on: [push, workflow_dispatch]
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -euo pipefail {0}
+    env:
+      RCLONE_CONFIG_GDRIVE_TYPE: drive
+      RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
+      RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
+      - name: Install dependencies and rclone
         run: |
-          python -m pip install --upgrade pip
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y python3-pip rclone
+        shell: bash
+
+      - name: Install Python requirements
+        run: |
+          set -euo pipefail
           pip install -r requirements.txt
+        shell: bash
 
-      - name: Run core engine
-        run: python core/engine.py
-
-      - name: Debug: list output files
+      - name: Run engine
         run: |
-          echo "Listing output directory:"
-          ls -lah output/
-          echo "---"
+          set -euo pipefail
+          python core/engine.py
+        shell: bash
 
-      - name: Install rclone
+      - name: Upload output to Google Drive
         run: |
-          curl -O https://downloads.rclone.org/rclone-current-linux-amd64.deb
-          sudo dpkg -i rclone-current-linux-amd64.deb
-          rm rclone-current-linux-amd64.deb
-
-      - name: Upload to Google Drive via rclone
-        env:
-          RCLONE_CONFIG_GDRIVE_TYPE: drive
-          RCLONE_CONFIG_GDRIVE_CLIENT_ID: "202264815644.apps.googleusercontent.com"
-          RCLONE_CONFIG_GDRIVE_CLIENT_SECRET: "X4Z3caPZQfF1bGmP6sGj"
-          RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
-          RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: "1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23"
-        run: |
-          rclone copy output/ gdrive:karateashi_output/ --verbose
+          set -euo pipefail
+          rclone copy output/ gdrive: -v
+        shell: bash
 
       - name: Send Telegram notification with report
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendDocument" \
-            -F chat_id="${TELEGRAM_CHAT_ID}" \
-            -F document=@output/relatorio_consolidado.json \
-            -F caption="Relatório consolidado gerado com sucesso."
+          set -euo pipefail
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
+            -F chat_id="${TG_CHAT_ID}" \
+            -F document="@output/relatorio_consolidado.json" \
+            -F caption="Workflow concluído com sucesso."
+        shell: bash
