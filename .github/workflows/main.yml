@@ -1,26 +1,20 @@
-name: Upload to Google Drive
+name: Karate Ashi Automation
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
-  upload:
+  run-and-upload:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          python-version: '3.11'
+          cache: 'pip'
 
       - name: Install rclone
         run: |
@@ -28,17 +22,13 @@ jobs:
           sudo dpkg -i rclone-current-linux-amd64.deb
           rm rclone-current-linux-amd64.deb
 
-      - name: Configure rclone with OAuth2 token
+      - name: Run automation and upload
         env:
           RCLONE_CONFIG_GDRIVE_TYPE: drive
+          RCLONE_CONFIG_GDRIVE_SCOPE: drive
           RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
-        run: echo "Rclone configuration set via environment variables"
-
-      - name: Run engine.py
-        run: python engine.py
-
-      - name: Upload output to Google Drive
-        env:
-          RCLONE_CONFIG_GDRIVE_TYPE: drive
-          RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
-        run: rclone copy output/ "gdrive,root_folder_id=1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23:" -v
+          RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
+        run: |
+          pip install -r requirements.txt
+          python core/engine.py
+          rclone copy output/ gdrive: -v

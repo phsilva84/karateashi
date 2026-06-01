@@ -1,90 +1,130 @@
 import json
-import os
-import sys
 import re
+import os
 
-def parse_txt(filepath):
-    students = []
-    current = None
-    pattern_nome = re.compile(r'^Nome do aluno:\s*(.+)', re.IGNORECASE)
-    pattern_nota = re.compile(r'^(Kihon|Kata|Bunkai|Kumite):\s*(\d+(?:\.\d+)?)', re.IGNORECASE)
+# Pesos oficiais
+PESOS = {
+    "A1": 1.0, "A2": 2.0, "A3": 1.5, "A4": 2.5,
+    "A5": 3.0, "A6": 1.0, "A7": 4.0, "A8": 2.0,
+    "A9": 3.5, "A10": 12.0, "A11": 1.0, "A12": 5.0
+}
 
-    with open(filepath, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
+# Categorias e seus códigos
+CATEGORIAS = {
+    "Kihon": "Kihon",
+    "Kata": "Kata",
+    "Bunkai": "Bunkai",
+    "Kumite": "Kumite"
+}
 
-            m_nome = pattern_nome.match(line)
-            if m_nome:
-                if current is not None:
-                    students.append(current)
-                current = {'aluno': m_nome.group(1).strip(),
-                           'Kihon': None, 'Kata': None,
-                           'Bunkai': None, 'Kumite': None}
-                continue
+def extrair_codigos(texto):
+    """Extrai códigos no formato 'cod:1,7' do texto."""
+    padrao = r'cod:([\d,]+)'
+    match = re.search(padrao, texto)
+    if match:
+        return [int(x.strip()) for x in match.group(1).split(',')]
+    return []
 
-            if current is not None:
-                m_nota = pattern_nota.match(line)
-                if m_nota:
-                    key = m_nota.group(1).capitalize()  # ensure correct case
-                    current[key] = float(m_nota.group(2))
+def calcular_nota(codigos):
+    """Calcula a nota para uma categoria baseada nos códigos de erro."""
+    nota = 25.0
+    for cod in codigos:
+        chave = f"A{cod}"
+        if chave in PESOS:
+            nota -= PESOS[chave]
+    return max(0.0, nota)
 
-    if current is not None:
-        students.append(current)
-
-    return students
-
-def calcular_nota_final(aluno):
-    # Pesos oficiais (exemplo: iguais)
-    pesos = {'Kihon': 0.25, 'Kata': 0.25, 'Bunkai': 0.25, 'Kumite': 0.25}
-    total = 0.0
-    erros = []
-
-    for componente, peso in pesos.items():
-        valor = aluno.get(componente)
-        if valor is None:
-            erros.append(f'{componente} não encontrado')
-        else:
-            total += valor * peso
-
-    if erros:
-        # Se faltar algum componente, nota fica 0 ou parcial?
-        # Vamos atribuir 0 para componentes faltantes (já tratado)
-        pass
-
-    nota_base100 = total  # soma ponderada, base 100
-    nota_final = nota_base100 / 10.0  # converter para base 10
-    nota_final = min(nota_final, 10.0)  # teto de 10.0
-
-    # Tendência simplificada
-    if nota_final >= 8.0:
-        tendencia = 'positiva'
-    elif nota_final >= 5.0:
-        tendencia = 'neutra'
-    else:
-        tendencia = 'negativa'
-
-    return {
-        'aluno': aluno['aluno'],
-        'nota_final': round(nota_final, 2),
-        'detalhes_erros': erros,
-        'tendencia': tendencia
+def processar_aluno(bloco_texto):
+    """Processa um bloco de texto de um aluno e retorna o dicionário do aluno."""
+    nome_match = re.search(r'Nome do aluno:\s*(.+)', bloco_texto)
+    if not nome_match:
+        return None
+    
+    nome = nome_match.group(1).strip()
+    print(f"LOG: Processando aluno {nome}")
+    
+    aluno = {
+        "nome": nome,
+        "notas": {},
+        "total": 0.0
     }
+    
+    for categoria in CATEGORIAS.values():
+        # Encontrar o bloco da categoria
+        padrao_categoria = rf'{categoria}\s*(.*?)(?=Kihon|Kata|Bunkai|Kumite|$)'
+        match = re.search(padrao_categoria, bloco_texto, re.DOTALL)
+        
+        if match:
+            texto_categoria = match.group(1)
+            codigos = extrair_codigos(texto_categoria)
+            nota = calcular_nota(codigos)
+            
+            # Aplicar teto de 10.0 no A10
+            if 10 in codigos:
+                nota = min(nota, 10.0)
+            
+            aluno["notas"][categoria] = {
+                "codigos": codigos,
+                "nota": round(nota, 2)
+            }
+            aluno["total"] += nota
+        else:
+            aluno["notas"][categoria] = {
+                "codigos": [],
+                "nota": 25.0
+            }
+            aluno["total"] += 25.0
+    
+    aluno["total"] = round(aluno["total"], 2)
+    return aluno
+
+def processar_texto(texto):
+    """Processa o texto completo e retorna a lista de alunos."""
+    # Divide o texto em blocos de alunos
+    blocos = re.split(r'(?=Nome do aluno:)', texto)
+    alunos = []
+    
+    for bloco in blocos:
+        bloco = bloco.strip()
+        if bloco:
+            aluno = processar_aluno(bloco)
+            if aluno:
+                alunos.append(aluno)
+    
+    return alunos
+
+def salvar_diagnostico(alunos, caminho="output/diagnostico.json"):
+    """Salva a lista de alunos em um arquivo JSON."""
+    os.makedirs(os.path.dirname(caminho), exist_ok=True)
+    with open(caminho, 'w', encoding='utf-8') as f:
+        json.dump(alunos, f, ensure_ascii=False, indent=2)
+    print(f"Diagnóstico salvo em {caminho}")
 
 def main():
-    input_file = sys.argv[1] if len(sys.argv) > 1 else 'input.txt'
-    output_dir = 'output'
-    output_file = os.path.join(output_dir, 'diagnostico.json')
+    # Exemplo de texto para teste
+    texto_exemplo = """
+Nome do aluno: João Silva
+Kihon cod:1,7
+Kata cod:3,5
+Bunkai cod:2,4
+Kumite cod:6,8
 
-    alunos = parse_txt(input_file)
-    resultados = [calcular_nota_final(a) for a in alunos]
+Nome do aluno: Maria Santos
+Kihon cod:10,1
+Kata cod:2,3
+Bunkai cod:4,5
+Kumite cod:7,8
+"""
+    
+    alunos = processar_texto(texto_exemplo)
+    salvar_diagnostico(alunos)
+    
+    print("\nAlunos processados:")
+    for aluno in alunos:
+        print(f"\n{aluno['nome']}:")
+        for categoria, dados in aluno['notas'].items():
+            print(f"  {categoria}: {dados['nota']} (códigos: {dados['codigos']})")
+        print(f"  Total: {aluno['total']}")
 
-    os.makedirs(output_dir, exist_ok=True)
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(resultados, f, ensure_ascii=False, indent=2)
-
-    print(f'LOG: Processados {len(alunos)} alunos.')
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
