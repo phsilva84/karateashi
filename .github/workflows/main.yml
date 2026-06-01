@@ -1,53 +1,72 @@
-name: CI Pipeline
+name: Karate Tests and Notification
 
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  test-and-notify:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Setup Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-    - name: Setup rclone
-      uses: AnimMouse/setup-rclone@v1
-      with:
-        version: latest
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
 
-    - name: Configure rclone
-      run: |
-        mkdir -p ~/.config/rclone
-        cat > ~/.config/rclone/rclone.conf << EOF
-        [gdrive]
-        type = drive
-        scope = drive
-        token = ${{ secrets.GDRIVE_TOKEN }}
-        root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
-        EOF
+      - name: Run Karate tests
+        run: |
+          set -euo pipefail
+          mvn test -Dkarate.options="--tags @smoke" -Dtest=KarateRunner
 
-    - name: Install dependencies
-      run: pip install -r requirements.txt
+      - name: Debug: list output files
+        run: |
+          set -euo pipefail
+          echo "=== Directory tree after tests ==="
+          ls -R output/ || echo "output/ directory not found"
 
-    - name: Run engine
-      run: python core/engine.py
+      - name: Configure rclone (Google Drive)
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [gdrive]
+          type = drive
+          client_id = ${{ secrets.RCLONE_GDRIVE_CLIENT_ID }}
+          client_secret = ${{ secrets.RCLONE_GDRIVE_CLIENT_SECRET }}
+          scope = drive.file
+          token = {"access_token":"${{ secrets.RCLONE_GDRIVE_ACCESS_TOKEN }}","token_type":"Bearer","refresh_token":"${{ secrets.RCLONE_GDRIVE_REFRESH_TOKEN }}","expiry":"0001-01-01T00:00:00Z"}
+          EOF
 
-    - name: Copy output to Google Drive
-      run: rclone copy output/ gdrive: -v
+      - name: Upload reports to Google Drive via rclone
+        run: |
+          set -euo pipefail
+          rclone copy output/ gdrive:karate-reports/ --verbose
 
-    - name: Send Telegram notification
-      run: |
-        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
-          -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -F document=@"output/relatorio_consolidado.json" \
-          -F caption="✅ Pipeline executada com sucesso! Relatório consolidado anexado."
-      env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Send consolidated report via Telegram
+        run: |
+          set -euo pipefail
+          REPORT_FILE="output/relatorio_consolidado.json"
+          if [ ! -f "$REPORT_FILE" ]; then
+            echo "Error: $REPORT_FILE not found. Exiting."
+            exit 1
+          fi
+          echo "Sending $REPORT_FILE to Telegram..."
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
+            -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -F document=@"$REPORT_FILE" \
+            -F caption="Relatório consolidado - $(date '+%Y-%m-%d %H:%M')"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
