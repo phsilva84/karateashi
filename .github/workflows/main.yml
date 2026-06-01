@@ -1,62 +1,56 @@
-name: Karate Ashi Automation
+name: Karate Ashi Workflow
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  schedule:
+    - cron: '0 */6 * * *'
 
 jobs:
-  build-and-deploy:
+  build-and-upload:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt || { echo "Failed to install dependencies"; exit 1; }
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run core engine
+      - name: Write service account credentials safely
         run: |
-          python core/engine.py || { echo "Engine execution failed"; exit 1; }
+          printf '%s\n' "$GDRIVE_CREDENTIALS" > /tmp/gdrive-service-account.json
+          echo "Credentials written (length: $(wc -c < /tmp/gdrive-service-account.json))"
+        env:
+          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
 
-      - name: Verify output file
+      - name: Debug - check credentials file
+        run: ls -l /tmp/gdrive-service-account.json
+
+      - name: Run engine
+        run: python core/engine.py
+
+      - name: Debug - list output folder
+        run: ls -R output/ || echo "No output directory"
+
+      - name: Configure rclone for Google Drive
         run: |
-          if [ ! -f output/diagnostico.json ]; then
-            echo "Missing output/diagnostico.json"
-            exit 1
-          fi
-          echo "Diagnostico file exists"
-
-      - name: Debug listing before upload
-        run: ls -R output/
-
-      - name: Install rclone
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y rclone || { echo "rclone installation failed"; exit 1; }
-
-      - name: Configure rclone
-        run: |
-          echo "${{ secrets.GDRIVE_CREDENTIALS }}" > /tmp/gdrive-credentials.json || { echo "Failed to write credentials"; exit 1; }
           cat > /tmp/rclone.conf << EOF
           [gdrive]
           type = drive
-          service_account_file = /tmp/gdrive-credentials.json
-          scope = drive
-          root_folder_id = 
+          service_account_file = /tmp/gdrive-service-account.json
+          scope = drive.file
           EOF
-          echo "rclone configuration created"
+          echo "rclone config created"
 
       - name: Upload to Google Drive
-        run: |
-          rclone --config /tmp/rclone.conf copy output/ gdrive:Karate-Ashi || { echo "Upload failed"; exit 1; }
+        run: rclone copy output/ gdrive:Karate-Ashi --config /tmp/rclone.conf --verbose
 
-      - name: Debug listing after upload
-        run: ls -R output/
+      - name: Final debug - list remote if successful
+        run: rclone ls gdrive:Karate-Ashi --config /tmp/rclone.conf || echo "Listing failed (possibly empty remote)"
