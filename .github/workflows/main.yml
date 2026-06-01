@@ -1,49 +1,53 @@
-name: CI Workflow
+name: CI Pipeline
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
-  build-and-upload:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Install rclone
-        run: |
-          curl https://rclone.org/install.sh | sudo bash
+    - name: Setup Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
-      - name: Configure rclone
-        run: |
-          mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf << EOF
-          [gdrive]
-          type = drive
-          scope = drive
-          token = ${{ secrets.GDRIVE_TOKEN }}
-          root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
-          EOF
+    - name: Setup rclone
+      uses: AnimMouse/setup-rclone@v1
+      with:
+        version: latest
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
+    - name: Configure rclone
+      run: |
+        mkdir -p ~/.config/rclone
+        cat > ~/.config/rclone/rclone.conf << EOF
+        [gdrive]
+        type = drive
+        scope = drive
+        token = ${{ secrets.GDRIVE_TOKEN }}
+        root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
+        EOF
 
-      - name: Install dependencies and run engine
-        run: |
-          pip install -r requirements.txt
-          python core/engine.py
+    - name: Install dependencies
+      run: pip install -r requirements.txt
 
-      - name: Debug directory listings
-        run: |
-          echo "=== data/ ==="
-          ls -R data/
-          echo "=== output/ ==="
-          ls -R output/
+    - name: Run engine
+      run: python core/engine.py
 
-      - name: Upload output to Google Drive
-        run: |
-          rclone -v copy output/ gdrive:
+    - name: Copy output to Google Drive
+      run: rclone copy output/ gdrive: -v
+
+    - name: Send Telegram notification
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
+          -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -F document=@"output/relatorio_consolidado.json" \
+          -F caption="✅ Pipeline executada com sucesso! Relatório consolidado anexado."
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

@@ -1,193 +1,318 @@
 import os
-import glob
 import json
+import glob
+import shutil
 import logging
 import re
-from typing import Dict, List, Tuple, Optional
+from collections import defaultdict
 
-# Configuração de logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Pesos v1.1
-PESOS = {
-    'A1': 1.0, 'A2': 2.0, 'A3': 1.5, 'A4': 2.5, 'A5': 3.0,
-    'A6': 1.0, 'A7': 4.0, 'A8': 2.0, 'A9': 3.5, 'A10': 12.0,
-    'A11': 1.0, 'A12': 5.0
+# ----------------------------------------------------------------------
+# Configuration – Official Weights Table v1.1 and Ceiling Rule
+# ----------------------------------------------------------------------
+# Mapping from discount code to (category, base value)
+WEIGHTS = {
+    "A1":  ("A", 2.0),
+    "A2":  ("A", 3.0),
+    "A3":  ("A", 4.0),
+    "A4":  ("A", 5.0),
+    "A5":  ("A", 6.0),
+    "A6":  ("A", 7.0),
+    "A7":  ("A", 8.0),
+    "A8":  ("A", 9.0),
+    "A9":  ("A", 10.0),
+    "A10": ("A", 10.0),
+    "B1":  ("B", 2.0),
+    "B2":  ("B", 3.0),
+    "B3":  ("B", 4.0),
+    "C1":  ("C", 2.0),
+    "C2":  ("C", 3.0),
+    "D1":  ("D", 1.0),
+    # Add more codes as needed following the official table
 }
 
-CATEGORIAS = ['Kihon', 'Kata', 'Bunkai', 'Kumite']
+# Per‑category maximum total discount
+CATEGORY_CEILINGS = {
+    "A": 10.0,
+    # Others with no explicit ceiling are left unbounded (or you can set INF)
+}
 
-def parse_file(filepath: str) -> List[dict]:
-    """Analisa um arquivo de avaliação e retorna uma lista de avaliações.
-    Cada avaliação é um dicionário com:
-        - avaliador: str
-        - aluno: str
-        - categorias: dict (ex: {'Kihon': [1, 3, 7], 'Kata': [10], ...})
+# ----------------------------------------------------------------------
+# Logging configuration (standard SRE style)
+# ----------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------------------------
+# State Machine Parser
+# ----------------------------------------------------------------------
+def parse_exam_file(filepath: str) -> list:
     """
-    with open(filepath, 'r', encoding='utf-8') as f:
-        linhas = f.readlines()
-    
-    avaliacoes = []
-    estado = 'INICIO'  # INICIO, AVALIADOR, ALUNO, CATEGORIA
-    avaliador_atual = None
-    aluno_atual = None
-    categorias_atual = {cat: [] for cat in CATEGORIAS}
-    categoria_atual = None
+    Parses a single exam file and returns a list of evaluation records.
+    Each record: {"evaluator": str, "student": str, "discounts": [{"code": str, "category": str, "value": float}, ...]}
+    """
+    logger.info(f"Parsing file: {filepath}")
+    records = []
+    current_evaluator = None
+    current_student = None
+    current_category = None
+    reading_codes = False  # flag to read codes after a category header
 
-    for linha in linhas:
-        linha = linha.strip()
-        if not linha:
-            continue
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
 
-        # Verifica linha "Avaliador X Sensei [Nome]:"
-        match_av = re.match(r'^Avaliador\s+\d+\s+Sensei\s+(.+?):\s*$', linha)
-        if match_av:
-            # Finaliza avaliação anterior, se existir
-            if aluno_atual is not None:
-                avaliacoes.append({
-                    'avaliador': avaliador_atual,
-                    'aluno': aluno_atual,
-                    'categorias': dict(categorias_atual)
+            # Detect evaluator line
+            m_eval = re.match(r"^Avaliador\s+X\s+Sensei\s+\[([^\]]+)\]:", stripped)
+            if m_eval:
+                # Finalize previous record if any
+                if current_evaluator and current_student:
+                    # record already appended, but we finalize when changing evaluator/student?
+                    pass
+                current_evaluator = m_eval.group(1)
+                logger.debug(f"Evaluator found: {current_evaluator}")
+                continue
+
+            # Detect student line
+            m_stud = re.match(r"^Nome do aluno:\s+\[([^\]]+)\]:", stripped)
+            if m_stud:
+                # Start new record for this student under current evaluator
+                if current_evaluator is None:
+                    logger.warning(f"Student line without evaluator: {line}")
+                    continue
+                current_student = m_stud.group(1)
+                current_category = None
+                reading_codes = False
+                logger.debug(f"Student found: {current_student}")
+                # Create a new record with empty discounts list
+                records.append({
+                    "evaluator": current_evaluator,
+                    "student": current_student,
+                    "discounts": []
                 })
-                logging.info(f"Avaliador {avaliador_atual} finalizou avaliação do aluno {aluno_atual}")
-            # Inicia novo contexto de avaliador
-            avaliador_atual = match_av.group(1).strip()
-            aluno_atual = None
-            categorias_atual = {cat: [] for cat in CATEGORIAS}
-            categoria_atual = None
-            estado = 'AVALIADOR'
-            continue
+                continue
 
-        # Verifica linha "Nome do aluno: [Nome]"
-        match_aluno = re.match(r'^Nome do aluno:\s+(.+?)\s*$', linha)
-        if match_aluno:
-            # Finaliza avaliação anterior se houver aluno ativo
-            if aluno_atual is not None:
-                avaliacoes.append({
-                    'avaliador': avaliador_atual,
-                    'aluno': aluno_atual,
-                    'categorias': dict(categorias_atual)
+            # Detect category headers
+            cat_match = re.match(r"^(Kihon|Kata|Bunkai|Kumite):", stripped)
+            if cat_match:
+                current_category = cat_match.group(1).upper()  # e.g., "KIHON"
+                reading_codes = True
+                logger.debug(f"Category header: {current_category}")
+                continue
+
+            # If we are inside a category and line contains a code
+            if reading_codes and records and current_category:
+                # Try to extract a single code (e.g., A1, B2, C3)
+                code_match = re.match(r"^([A-Z][0-9]+)\s*$", stripped)
+                if code_match:
+                    code = code_match.group(1)
+                    # Look up weight
+                    weight_info = WEIGHTS.get(code.upper())
+                    if weight_info is None:
+                        logger.warning(f"Unknown code '{code}' – skipping")
+                        continue
+                    cat, base_val = weight_info
+                    # Apply category ceiling: total discount for this category cannot exceed ceiling
+                    # We'll enforce the ceiling later during consolidation, but we store the base value now.
+                    records[-1]["discounts"].append({
+                        "code": code.upper(),
+                        "category": current_category,
+                        "value": base_val
+                    })
+                    logger.debug(f"Discount added: {code} ({current_category}) = {base_val}")
+                else:
+                    logger.debug(f"Line inside category not a code: {stripped}")
+            else:
+                logger.debug(f"Ignored line (outside category or no current record): {stripped}")
+
+    logger.info(f"Parsed {len(records)} evaluation records from {filepath}")
+    return records
+
+
+# ----------------------------------------------------------------------
+# Consolidation
+# ----------------------------------------------------------------------
+def consolidate(records: list) -> list:
+    """
+    Groups evaluations by student, calculates average score,
+    applies category ceilings per evaluator, and returns consolidated report.
+    """
+    logger.info("Starting consolidation of all records")
+
+    # Group records by student
+    student_records = defaultdict(list)
+    for rec in records:
+        student_records[rec["student"]].append(rec)
+
+    # Total number of distinct evaluators in the entire exam (for quorum)
+    all_evaluators = {rec["evaluator"] for rec in records}
+    total_evaluators = len(all_evaluators)
+    logger.debug(f"Total distinct evaluators: {total_evaluators}")
+
+    consolidated = []
+    for student, evals in student_records.items():
+        logger.info(f"Consolidating student: {student} ({len(evals)} evaluators)")
+
+        scores_per_evaluator = []
+        discount_details = []  # all discounts after ceiling application per evaluator
+        all_disc_codes_flat = []  # for the details we output in JSON
+
+        for rec in evals:
+            # Apply category ceilings per evaluator
+            cat_totals = defaultdict(float)
+            capped_discounts = []
+            for disc in rec["discounts"]:
+                code = disc["code"]
+                category_from_weight = WEIGHTS[code][0]  # e.g., "A"
+                base_val = disc["value"]
+                # Accumulate in category
+                new_total = cat_totals[category_from_weight] + base_val
+                if category_from_weight in CATEGORY_CEILINGS:
+                    ceiling = CATEGORY_CEILINGS[category_from_weight]
+                    if new_total > ceiling:
+                        # Cap the value for this discount
+                        allowed = ceiling - cat_totals[category_from_weight]
+                        if allowed > 0:
+                            capped_discounts.append({
+                                "code": code,
+                                "category": disc["category"],
+                                "original_value": base_val,
+                                "applied_value": allowed,
+                                "capped": True
+                            })
+                            cat_totals[category_from_weight] = ceiling
+                        else:
+                            capped_discounts.append({
+                                "code": code,
+                                "category": disc["category"],
+                                "original_value": base_val,
+                                "applied_value": 0.0,
+                                "capped": True
+                            })
+                    else:
+                        cat_totals[category_from_weight] = new_total
+                        capped_discounts.append({
+                            "code": code,
+                            "category": disc["category"],
+                            "original_value": base_val,
+                            "applied_value": base_val,
+                            "capped": False
+                        })
+                else:
+                    # No ceiling
+                    cat_totals[category_from_weight] = new_total
+                    capped_discounts.append({
+                        "code": code,
+                        "category": disc["category"],
+                        "original_value": base_val,
+                        "applied_value": base_val,
+                        "capped": False
+                    })
+
+            total_discount = sum(d["applied_value"] for d in capped_discounts)
+            score = 100.0 - total_discount  # assume base 100
+            scores_per_evaluator.append(score)
+
+            # Prepare discount details for output (list of discounts from this evaluator)
+            for d in capped_discounts:
+                discount_details.append({
+                    "avaliador": rec["evaluator"],
+                    "codigo": d["code"],
+                    "categoria": d["category"],
+                    "valor_aplicado": d["applied_value"]
                 })
-                logging.info(f"Avaliador {avaliador_atual} finalizou avaliação do aluno {aluno_atual}")
-            aluno_atual = match_aluno.group(1).strip()
-            categorias_atual = {cat: [] for cat in CATEGORIAS}
-            categoria_atual = None
-            estado = 'ALUNO'
-            continue
+            all_disc_codes_flat.extend(discount_details)
 
-        # Verifica linhas de categoria: "Kihon:", "Kata:", etc.
-        for cat in CATEGORIAS:
-            if linha.startswith(cat + ':'):
-                categoria_atual = cat
-                # Extrai códigos após o ':'
-                resto = linha[len(cat)+1:].strip()
-                codigos = re.findall(r'\d+', resto)
-                for cod in codigos:
-                    categorias_atual[cat].append(int(cod))
-                estado = 'CATEGORIA'
-                break
+        # Compute average score
+        if scores_per_evaluator:
+            avg_score = sum(scores_per_evaluator) / len(scores_per_evaluator)
         else:
-            # Linha dentro de uma categoria (sem o cabeçalho): pode conter códigos
-            if estado == 'CATEGORIA' and categoria_atual:
-                codigos = re.findall(r'\d+', linha)
-                for cod in codigos:
-                    categorias_atual[categoria_atual].append(int(cod))
+            avg_score = 0.0
 
-    # Finaliza última avaliação do arquivo
-    if aluno_atual is not None:
-        avaliacoes.append({
-            'avaliador': avaliador_atual,
-            'aluno': aluno_atual,
-            'categorias': dict(categorias_atual)
+        # Approval status
+        status = "Aprovado" if avg_score >= 70.0 else "Reprovado"
+
+        # Quorum: proportion of evaluators who evaluated this student out of total
+        num_evaluators_for_student = len(evals)
+        if total_evaluators > 0:
+            quorum = f"{num_evaluators_for_student}/{total_evaluators}"
+        else:
+            quorum = "N/A"
+
+        # Method: UNICO if single evaluator, CONSENSO if multiple
+        method = "UNICO" if num_evaluators_for_student == 1 else "CONSENSO"
+
+        consolidated.append({
+            "aluno": student,
+            "media": round(avg_score, 2),
+            "status": status,
+            "quorum": quorum,
+            "metodo": method,
+            "avaliadores": [rec["evaluator"] for rec in evals],
+            "descontos": discount_details  # detailed list for JSON output
         })
-        logging.info(f"Avaliador {avaliador_atual} finalizou avaliação do aluno {aluno_atual}")
 
-    return avaliacoes
+    logger.info(f"Consolidation finished. {len(consolidated)} students processed.")
+    return consolidated
 
-def calcular_nota_categoria(codigos: List[int]) -> float:
-    """Calcula a nota de uma categoria a partir dos códigos de erro.
-    Regra: inicia com 25.0, subtrai pesos; se código 10 presente, teto 10.0.
+
+# ----------------------------------------------------------------------
+# File Management (Idempotent)
+# ----------------------------------------------------------------------
+def process_exam_files(input_glob: str = "data/exame-*.txt",
+                       output_dir: str = "output",
+                       processed_dir: str = "data/processed") -> str:
     """
-    nota = 25.0
-    for cod in codigos:
-        chave = f'A{cod}'
-        if chave in PESOS:
-            nota -= PESOS[chave]
-    if 10 in codigos:
-        nota = min(nota, 10.0)
-    return max(nota, 0.0)  # não negativa
-
-def calcular_nota_total(categorias: Dict[str, List[int]]) -> float:
-    """Calcula a nota total do aluno para um avaliador.
-    Soma das notas das 4 categorias.
+    Reads exam files matching input_glob, parses, consolidates, writes JSON,
+    and moves processed files to processed_dir.
+    Returns path to generated JSON report.
     """
-    total = 0.0
-    for cat in CATEGORIAS:
-        total += calcular_nota_categoria(categorias.get(cat, []))
-    return round(total, 2)
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(processed_dir, exist_ok=True)
 
-def consolidar_alunos(avaliacoes: List[dict]) -> Dict[str, dict]:
-    """Agrupa avaliações por aluno e calcula nota final, método e quorum.
-    """
-    alunos = {}
-    for av in avaliacoes:
-        nome = av['aluno']
-        if nome not in alunos:
-            alunos[nome] = {'notas': [], 'avaliadores': set()}
-        nota = calcular_nota_total(av['categorias'])
-        alunos[nome]['notas'].append(nota)
-        alunos[nome]['avaliadores'].add(av['avaliador'])
-        logging.info(f"Aluno {nome}: avaliação do avaliador {av['avaliador']} -> nota {nota}")
+    files = sorted(glob.glob(input_glob))
+    if not files:
+        logger.warning(f"No files matching {input_glob}")
+        return ""
 
-    resultado = {}
-    for nome, dados in alunos.items():
-        notas = dados['notas']
-        num_avaliadores = len(dados['avaliadores'])
-        media = round(sum(notas) / len(notas), 2)
-        if num_avaliadores == 1:
-            metodo = 'UNICO'
-        else:
-            metodo = 'CONSENSO'
-        quorum = f"{num_avaliadores}/3"  # exemplo: 1/3, 2/3, 3/3
-        resultado[nome] = {
-            'aluno': nome,
-            'nota_final': media,
-            'metodo': metodo,
-            'quorum': quorum
-        }
-    return resultado
+    all_records = []
+    for fpath in files:
+        records = parse_exam_file(fpath)
+        all_records.extend(records)
 
-def gerar_arquivos_saida(resultado: Dict[str, dict], diretorio_saida: str = 'output'):
-    """Gera um arquivo JSON por aluno no diretório de saída.
-    """
-    os.makedirs(diretorio_saida, exist_ok=True)
-    for nome, dados in resultado.items():
-        nome_arquivo = f"diagnostico_{nome.replace(' ', '_')}.json"
-        caminho = os.path.join(diretorio_saida, nome_arquivo)
-        with open(caminho, 'w', encoding='utf-8') as f:
-            json.dump(dados, f, ensure_ascii=False, indent=2)
-        logging.info(f"Arquivo gerado: {caminho}")
+    if not all_records:
+        logger.warning("No records found in any file.")
+        return ""
 
-def main():
-    """Ponto de entrada: varre data/*.txt, processa e gera saída.
-    """
-    arquivos = glob.glob(os.path.join('data', '*.txt'))
-    if not arquivos:
-        logging.warning("Nenhum arquivo .txt encontrado em data/")
-        return
+    # Consolidate
+    consolidated = consolidate(all_records)
 
-    todas_avaliacoes = []
-    for arquivo in arquivos:
-        logging.info(f"Processando arquivo: {arquivo}")
-        avaliacoes = parse_file(arquivo)
-        todas_avaliacoes.extend(avaliacoes)
+    # Write output JSON with details
+    output_path = os.path.join(output_dir, "relatorio_consolidado.json")
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(consolidated, f, ensure_ascii=False, indent=2)
+    logger.info(f"Output written to {output_path}")
 
-    if not todas_avaliacoes:
-        logging.warning("Nenhuma avaliação encontrada nos arquivos.")
-        return
+    # Move original files to processed/
+    for fpath in files:
+        dest = os.path.join(processed_dir, os.path.basename(fpath))
+        shutil.move(fpath, dest)
+        logger.info(f"Moved {fpath} -> {dest}")
 
-    resultado = consolidar_alunos(todas_avaliacoes)
-    gerar_arquivos_saida(resultado)
+    return output_path
 
-if __name__ == '__main__':
-    main()
+
+# ----------------------------------------------------------------------
+# Main entry point (can be run standalone)
+# ----------------------------------------------------------------------
+if __name__ == "__main__":
+    report_path = process_exam_files()
+    if report_path:
+        logger.info(f"Consolidated report generated at: {report_path}")
+    else:
+        logger.error("No report generated – check input files.")
