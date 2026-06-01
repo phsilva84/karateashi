@@ -1,28 +1,47 @@
-name: Karate Ashi Workflow
+name: Karate Ashi Automation
 on:
   push:
-    branches: [ main ]
-  schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
-
+    branches:
+      - main
 jobs:
-  run:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Install rclone
         run: |
           set -euo pipefail
-          curl -fsSL https://rclone.org/install.sh | sudo bash
+          curl https://rclone.org/install.sh | sudo bash
 
       - name: Decode GDrive credentials
         run: |
           set -euo pipefail
-          echo "${{ secrets.GDRIVE_CREDENTIALS }}" | base64 -d > /tmp/rclone.conf
+          echo "${{ secrets.GDRIVE_CREDENTIALS }}" | base64 --decode > /tmp/sa.json
 
-      - name: Run engine
+      - name: Configure rclone
+        run: |
+          set -euo pipefail
+          cat > /tmp/rclone.conf << EOF
+          [gdrive]
+          type = drive
+          service_account_file = /tmp/sa.json
+          scope = drive
+          EOF
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Python dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run core engine
         run: |
           set -euo pipefail
           python core/engine.py
@@ -30,4 +49,13 @@ jobs:
       - name: Upload output to Google Drive
         run: |
           set -euo pipefail
+          ls -R output/
           rclone copy output/ gdrive:Karate-Ashi --config /tmp/rclone.conf
+
+      - name: Debug logs
+        run: |
+          set -euo pipefail
+          echo "=== Final output directory listing ==="
+          ls -R output/ || true
+          echo "=== rclone config ==="
+          cat /tmp/rclone.conf

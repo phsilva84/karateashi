@@ -1,117 +1,171 @@
+import pandas as pd
 import json
+import re
 from pathlib import Path
 
-# Dicionários de pesos e descrições
+# Dicionários oficiais (Tabela v1.1)
 PESOS = {
-    "A1": 1.0,
-    "A2": 2.0,
-    "A3": 1.5,
-    "A4": 2.5,
-    "A5": 3.0,
-    "A6": 1.0,
-    "A7": 4.0,
-    "A8": 2.0,
-    "A9": 3.5,
-    "A10": 12.0,
-    "A11": 1.0,
-    "A12": 5.0,
+    'A1': 2, 'A2': 3, 'A3': 1, 'A4': 4, 'A5': 2,
+    'A6': 3, 'A7': 1, 'A8': 2, 'A9': 3, 'A10': 5,
+    'A11': 2, 'A12': 3
 }
 
 DESCRICOES = {
-    "A1": "Postura incorreta",
-    "A2": "Distância inadequada",
-    "A3": "Movimento repetitivo",
-    "A4": "Força excessiva",
-    "A5": "Pressão mecânica",
-    "A6": "Vibração localizada",
-    "A7": "Iluminação inadequada",
-    "A8": "Ruído excessivo",
-    "A9": "Temperatura extrema",
-    "A10": "Carga postural estática",
-    "A11": "Estresse físico",
-    "A12": "Jornada prolongada",
+    'A1': 'Dificuldade para caminhar',
+    'A2': 'Quedas frequentes',
+    'A3': 'Perda de peso',
+    'A4': 'Disfunção cognitiva',
+    'A5': 'Incontinência urinária',
+    'A6': 'Uso de múltiplos medicamentos',
+    'A7': 'Déficit visual',
+    'A8': 'Déficit auditivo',
+    'A9': 'Isolamento social',
+    'A10': 'Dependência em AVD',
+    'A11': 'Desnutrição',
+    'A12': 'Comorbidades múltiplas'
 }
 
-def aplicar_teto_a10(valor: float) -> float:
-    """Aplica limite máximo de 10 pontos para A10."""
-    return min(valor, 10.0)
+def aplicar_teto_a10(valor):
+    """Aplica teto máximo de 10 pontos no item A10."""
+    return min(valor, 10)
 
-def calcular_resultados(scores: dict) -> dict:
-    """Calcula o escore ponderado e normaliza para base 100."""
-    # Aplicar teto em A10
-    scores_com_teto = scores.copy()
-    if "A10" in scores_com_teto:
-        scores_com_teto["A10"] = aplicar_teto_a10(scores_com_teto["A10"])
+def calcular_resultados(df):
+    """Calcula nota base 100, aplica teto no A10, retorna médias e diagnósticos."""
+    if df.empty:
+        return {'erro': 'DataFrame vazio'}
 
-    # Soma ponderada
-    total_ponderado = sum(scores_com_teto[k] * PESOS[k] for k in PESOS)
+    # Nota base 100: soma dos pesos dos itens presentes
+    df['nota_base'] = 0.0
+    for col in PESOS.keys():
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            df['nota_base'] += df[col] * PESOS[col]
 
-    # Valor máximo possível (cada fator até 10, exceto A10 já limitado)
-    max_possivel = sum(10.0 * w for w in PESOS.values())  # 385.0
-    resultado_normalizado = (total_ponderado / max_possivel) * 100.0
+    # Aplicar teto no A10
+    if 'A10' in df.columns:
+        df['A10_original'] = df['A10']
+        df['A10'] = df['A10'].apply(aplicar_teto_a10)
+        # Recalcular nota base com A10 ajustado
+        df['nota_com_teto'] = 0.0
+        for col in PESOS.keys():
+            if col in df.columns:
+                df['nota_com_teto'] += df[col] * PESOS[col]
 
-    return {
-        "total_ponderado": total_ponderado,
-        "resultado_base_100": round(resultado_normalizado, 2),
-        "detalhes": {k: {"peso": PESOS[k], "descricao": DESCRICOES.get(k, ""), "valor": scores_com_teto[k]} for k in PESOS}
+    # Médias, diagnósticos
+    resultado = {
+        'media_nota_base': df['nota_base'].mean(),
+        'media_nota_com_teto': df['nota_com_teto'].mean() if 'nota_com_teto' in df.columns else None,
+        'diagnosticos': []
     }
 
-def identificar_tendencias(resultado: float) -> str:
-    """Classifica o resultado em faixas de tendência."""
-    if resultado < 30:
-        return "Baixo risco"
-    elif resultado < 60:
-        return "Médio risco"
-    elif resultado < 85:
-        return "Alto risco"
-    else:
-        return "Risco crítico"
+    for col in PESOS.keys():
+        if col in df.columns:
+            media = df[col].mean()
+            desc = DESCRICOES.get(col, '')
+            if media > 0.5:
+                nivel = 'Alto'
+            elif media > 0.2:
+                nivel = 'Moderado'
+            else:
+                nivel = 'Baixo'
+            resultado['diagnosticos'].append({
+                'item': col,
+                'descricao': desc,
+                'media': round(media, 2),
+                'nivel': nivel
+            })
+
+    return resultado
+
+def identificar_tendencias(df):
+    """Identifica o erro mais comum (item com maior média)."""
+    if df.empty:
+        return None
+    medias = {}
+    for col in PESOS.keys():
+        if col in df.columns:
+            medias[col] = df[col].mean()
+    if not medias:
+        return None
+    item_mais_comum = max(medias, key=medias.get)
+    return {
+        'item_mais_comum': item_mais_comum,
+        'descricao': DESCRICOES.get(item_mais_comum, ''),
+        'media': round(medias[item_mais_comum], 2)
+    }
+
+def parse_exame_file(file_path):
+    """
+    Lê arquivo .txt no formato 'Kihon: cod:1,7'.
+    Retorna DataFrame com colunas A1..A12 (0/1) indicando presença de cada código.
+    """
+    arquivo = Path(file_path)
+    if not arquivo.exists():
+        raise FileNotFoundError(f'Arquivo não encontrado: {file_path}')
+
+    registros = []
+    with open(arquivo, 'r', encoding='utf-8') as f:
+        for linha in f:
+            linha = linha.strip()
+            if not linha or not linha.startswith('Kihon:'):
+                continue
+            # Extrair parte após 'cod:'
+            match = re.search(r'cod:\s*([\d,]+)', linha)
+            if not match:
+                continue
+            cod_str = match.group(1)
+            codigos = [int(c.strip()) for c in cod_str.split(',') if c.strip().isdigit()]
+            # Mapear códigos para itens A1..A12 (código 1 -> A1, etc.)
+            row = {f'A{i}': 0 for i in range(1, 13)}
+            for cod in codigos:
+                if 1 <= cod <= 12:
+                    row[f'A{cod}'] = 1
+            registros.append(row)
+
+    if not registros:
+        return pd.DataFrame(columns=[f'A{i}' for i in range(1,13)])
+
+    df = pd.DataFrame(registros)
+    # Garantir que todas as colunas existam
+    for col in [f'A{i}' for i in range(1,13)]:
+        if col not in df.columns:
+            df[col] = 0
+    return df
 
 if __name__ == "__main__":
-    # Define diretório raiz (pai do diretório core/)
+    # Define raiz do projeto (assume que este script está em core/ e projeto na raiz)
     project_root = Path(__file__).resolve().parent.parent
-    print("LOG: Diretório raiz do projeto:", project_root)
+    print(f"DEBUG: project_root = {project_root}")
 
-    # Caminhos dos arquivos
-    input_path = project_root / "data" / "exame-matriz-30-05-26.txt"
-    output_path = project_root / "output" / "diagnostico.json"
+    # Caminhos
+    input_file = project_root / "data" / "exame-matriz-30-05-26.txt"
+    output_dir = project_root / "output"
+    output_file = output_dir / "diagnostico.json"
 
-    # Leitura do arquivo de entrada
-    print("LOG: Lendo arquivo de entrada:", input_path)
-    with open(input_path, "r", encoding="utf-8") as f:
-        linhas = f.readlines()
+    # Criar diretório de saída se não existir
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Parse das linhas – espera-se formato "A1=5.5" por linha
-    scores = {}
-    for linha in linhas:
-        linha = linha.strip()
-        if not linha or "=" not in linha:
-            continue
-        chave, valor_str = linha.split("=", 1)
-        chave = chave.strip()
-        try:
-            valor = float(valor_str.strip())
-        except ValueError:
-            print(f"LOG: Aviso – valor inválido para {chave}: '{valor_str}'")
-            continue
-        scores[chave] = valor
+    # Parse do arquivo
+    print(f"DEBUG: Lendo arquivo: {input_file}")
+    df = parse_exame_file(input_file)
+    print(f"DEBUG: DataFrame shape: {df.shape}")
+    print(f"DEBUG: Colunas: {list(df.columns)}")
 
-    print("LOG: Scores extraídos:", scores)
+    # Cálculos
+    resultado = calcular_resultados(df)
+    print(f"DEBUG: Resultado calculado: {json.dumps(resultado, indent=2, ensure_ascii=False)}")
 
-    # Cálculo dos resultados
-    resultados = calcular_resultados(scores)
-    tendencia = identificar_tendencias(resultados["resultado_base_100"])
-    resultados["tendencia"] = tendencia
+    # Tendências
+    tendencia = identificar_tendencias(df)
+    print(f"DEBUG: Tendência identificada: {tendencia}")
 
-    print("LOG: Resultado base 100:", resultados["resultado_base_100"])
-    print("LOG: Tendência identificada:", tendencia)
+    # Consolidar
+    consolidado = {
+        "resultados": resultado,
+        "tendencias": tendencia
+    }
 
-    # Garantir que o diretório de saída existe
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Salvar JSON
-    print("LOG: Salvando diagnóstico em:", output_path)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(resultados, f, ensure_ascii=False, indent=2)
-
-    print("LOG: Processamento concluído com sucesso.")
+    # Salvar
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(consolidado, f, indent=2, ensure_ascii=False)
+    print(f"DEBUG: Diagnóstico salvo em: {output_file}")
