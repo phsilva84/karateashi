@@ -1,5 +1,4 @@
 pandas
 streamlit
 fpdf2
-rclone-python
 pathlib

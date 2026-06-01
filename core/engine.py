@@ -1,105 +1,112 @@
-import os
 import json
+import csv
 from pathlib import Path
 
-# Dicionários de pesos e descrições (exemplos - substituir conforme necessário)
+# Tabela v1.1 - Pesos e descrições
 PESOS = {
-    "criterio_a": 0.4,
-    "criterio_b": 0.3,
-    "criterio_c": 0.2,
-    "criterio_d": 0.1,
+    'var1': 0.3,
+    'var2': 0.5,
+    'var3': 0.2,
 }
 
 DESCRICOES = {
-    "criterio_a": "Descrição do critério A",
-    "criterio_b": "Descrição do critério B",
-    "criterio_c": "Descrição do critério C",
-    "criterio_d": "Descrição do critério D",
+    'var1': 'Descrição da variável 1',
+    'var2': 'Descrição da variável 2',
+    'var3': 'Descrição da variável 3',
 }
 
+def aplicar_teto_a10(valor: float) -> float:
+    """Aplica um teto máximo de 10 ao valor."""
+    return min(valor, 10.0)
 
-def calcular_resultados(dados: list) -> dict:
-    """
-    Calcula os resultados com base nos dados fornecidos.
-    Esta é uma implementação de exemplo que deve ser substituída.
-    """
-    resultados = {}
-    for chave, peso in PESOS.items():
-        resultados[chave] = sum(dado.get(chave, 0) * peso for dado in dados)
+def calcular_resultados(dados: list) -> list:
+    """Processa os dados aplicando pesos e teto, retorna lista de dicionários com resultados."""
+    resultados = []
+    for linha in dados:
+        resultado = {}
+        for chave, peso in PESOS.items():
+            valor_original = float(linha.get(chave, 0))
+            valor_ponderado = valor_original * peso
+            valor_limitado = aplicar_teto_a10(valor_ponderado)
+            descricao = DESCRICOES.get(chave, 'Descrição não encontrada')
+            resultado[chave] = {
+                'valor_original': valor_original,
+                'valor_ponderado': round(valor_ponderado, 2),
+                'valor_limitado': round(valor_limitado, 2),
+                'descricao': descricao,
+            }
+        resultados.append(resultado)
     return resultados
 
-
-def identificar_tendencias(resultados: dict) -> list:
-    """
-    Identifica tendências a partir dos resultados calculados.
-    Implementação de exemplo – ajustar conforme necessidade.
-    """
-    tendencias = []
-    for chave, valor in resultados.items():
-        if valor > 0.5:
-            tendencias.append(f"{chave}: tendência alta ({valor:.2f})")
+def identificar_tendencias(resultados: list) -> dict:
+    """Identifica tendências com base nos resultados (exemplo simples)."""
+    if len(resultados) < 2:
+        return {'tendencia': 'insuficiente'}
+    ultimo = resultados[-1]
+    penultimo = resultados[-2] if len(resultados) >= 2 else {}
+    tendencias = {}
+    for chave in PESOS:
+        if chave in ultimo and chave in penultimo:
+            diff = ultimo[chave]['valor_limitado'] - penultimo[chave]['valor_limitado']
+            if diff > 0.5:
+                tendencias[chave] = 'aumento'
+            elif diff < -0.5:
+                tendencias[chave] = 'queda'
+            else:
+                tendencias[chave] = 'estável'
         else:
-            tendencias.append(f"{chave}: tendência baixa ({valor:.2f})")
-    return tendencias
-
+            tendencias[chave] = 'indeterminado'
+    return {'tendencias': tendencias}
 
 if __name__ == "__main__":
-    # Cria diretório output se não existir
-    output_dir = Path("output")
-    output_dir.mkdir(exist_ok=True)
-    print("[LOG] Diretório 'output' verificado/criado.")
-
-    # Procura pelo arquivo de entrada na raiz do projeto
-    # Assume que o script está em core/engine.py, então a raiz é o diretório pai de core/
-    script_dir = Path(__file__).resolve().parent
-    project_root = script_dir.parent
-    arquivo_entrada = project_root / "exame-matriz-30-05-26.txt"
-
-    if not arquivo_entrada.exists():
-        print(f"[ERRO] Arquivo '{arquivo_entrada}' não encontrado.")
-        exit(1)
-
-    print(f"[LOG] Arquivo encontrado: {arquivo_entrada}")
-
-    # Lê os dados do arquivo (formato livre – ajuste conforme necessário)
-    with open(arquivo_entrada, "r") as f:
-        linhas = f.readlines()
-
-    # Converte linhas para uma lista de dicionários (exemplo: CSV simples)
-    # Esta conversão é ilustrativa; adapte ao formato real do arquivo
+    print("=== INÍCIO ===")
+    
+    # Define diretório raiz do projeto (pai de core/)
+    project_root = Path(__file__).resolve().parent.parent
+    print(f"project_root: {project_root}")
+    
+    # Caminho do arquivo de entrada
+    input_file = project_root / "data" / "exame-matriz-30-05-26.txt"
+    print(f"Arquivo de entrada: {input_file}")
+    
+    # Leitura do arquivo
     dados = []
-    for linha in linhas:
-        partes = linha.strip().split(",")
-        if len(partes) >= 4:
-            registro = {
-                "criterio_a": float(partes[0]),
-                "criterio_b": float(partes[1]),
-                "criterio_c": float(partes[2]),
-                "criterio_d": float(partes[3]),
-            }
-            dados.append(registro)
-
-    print(f"[LOG] {len(dados)} registros carregados.")
-
-    # Executa o cálculo
+    with open(input_file, 'r', encoding='utf-8') as f:
+        primeira_linha = f.readline().strip()
+        # Detecta separador: vírgula ou tabulação
+        if ',' in primeira_linha:
+            separador = ','
+        elif '\t' in primeira_linha:
+            separador = '\t'
+        else:
+            separador = ','  # fallback
+        print(f"Separador detectado: {repr(separador)}")
+        f.seek(0)  # volta ao início
+        reader = csv.DictReader(f, delimiter=separador)
+        for row in reader:
+            dados.append(row)
+    print(f"Total de linhas lidas: {len(dados)}")
+    
+    # Processamento
+    print("Calculando resultados...")
     resultados = calcular_resultados(dados)
-    print("[LOG] Cálculo realizado.")
-
-    # Identifica tendências
+    print(f"Resultados calculados para {len(resultados)} registros")
+    
+    print("Identificando tendências...")
     tendencias = identificar_tendencias(resultados)
-    print("[LOG] Tendências identificadas.")
-
-    # Monta o diagnóstico completo
+    print(f"Tendências: {tendencias}")
+    
+    # Saída
+    output_dir = project_root / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / "diagnostico.json"
+    print(f"Salvando em: {output_file}")
+    
     diagnostico = {
-        "resultados": resultados,
-        "tendencias": tendencias,
-        "descricoes": DESCRICOES,
+        'resultados': resultados,
+        'tendencias': tendencias,
     }
-
-    # Salva em output/diagnostico.json
-    caminho_saida = output_dir / "diagnostico.json"
-    with open(caminho_saida, "w", encoding="utf-8") as f:
-        json.dump(diagnostico, f, ensure_ascii=False, indent=2)
-
-    print(f"[LOG] Diagnóstico salvo em: {caminho_saida}")
-    print("[LOG] Execução concluída com sucesso.")
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(diagnostico, f, indent=2, ensure_ascii=False)
+    
+    print("=== FIM ===")

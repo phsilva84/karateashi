@@ -1,187 +1,115 @@
-import os
-import json
-import zipfile
-import tempfile
-from io import BytesIO
-
-import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
+import json
+import os
+import io
+import zipfile
+from pathlib import Path
 from fpdf import FPDF
-
 from core.engine import calcular_resultados, identificar_tendencias
 
-# -------------------------------------------------------------------
-# Configuração das pastas de saída
-# -------------------------------------------------------------------
-OUTPUT_DIR = "output"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# Configuração da página
+st.set_page_config(page_title="Analisador de Dados", layout="wide")
+st.title("📊 Analisador de Dados")
+st.markdown("Faça upload de um arquivo para processar e gerar relatórios.")
 
-# -------------------------------------------------------------------
-# Função auxiliar: ler arquivo .txt com detecção de delimitador
-# -------------------------------------------------------------------
-def _detect_delimiter(file_path):
-    with open(file_path, 'r') as f:
-        first_line = f.readline()
-        if '\t' in first_line:
-            return '\t'
-        # Falling back to comma if no tab found
-        return ','
+# Criação da pasta de saída (output/) se não existir
+OUTPUT_DIR = Path("output")
+OUTPUT_DIR.mkdir(exist_ok=True)
 
-def processar_dados(uploaded_file):
-    """
-    Lê um arquivo .txt (ou .csv) e retorna um DataFrame.
-    Suporta delimitadores vírgula e tabulação.
-    """
-    # Salva temporariamente o arquivo para leitura
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
-        tmp.write(uploaded_file.getbuffer())
-        tmp_path = tmp.name
+# Upload do arquivo
+uploaded_file = st.file_uploader("Escolha um arquivo", type=["csv", "xlsx", "json"])
 
-    try:
-        delimiter = _detect_delimiter(tmp_path)
-        df = pd.read_csv(tmp_path, delimiter=delimiter)
-    except Exception as e:
-        st.error(f"Erro ao ler o arquivo: {e}")
-        return None
-    finally:
-        os.unlink(tmp_path)  # Remove temporário
+if uploaded_file is not None:
+    # Botão para processar
+    if st.button("Processar Arquivo"):
+        with st.spinner("Processando..."):
+            try:
+                # Salvar temporariamente o arquivo para processamento
+                file_path = OUTPUT_DIR / uploaded_file.name
+                with open(file_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
 
-    return df
+                # Chamar as funções do core.engine
+                resultados = calcular_resultados(file_path)
+                tendencias = identificar_tendencias(file_path)
 
-# -------------------------------------------------------------------
-# Função principal de processamento (chamada pela UI)
-# -------------------------------------------------------------------
-def processar_completo(df, nome_base):
-    """
-    Executa a análise usando as funções do core/engine.py
-    e gera os arquivos de saída.
-    """
-    try:
-        # Utiliza as funções da engine (Tabela v1.1)
-        resultados = calcular_resultados(df)
-        tendencias = identificar_tendencias(df)
+                # Montar diagnóstico
+                diagnostico = {
+                    "resultados": resultados,
+                    "tendencias": tendencias
+                }
 
-        # Combina tudo para o JSON de diagnóstico
-        diagnostico = {
-            "resultados": resultados,
-            "tendencias": tendencias,
-            "metadados": {
-                "arquivo": nome_base,
-                "registros": len(df),
-                "colunas": list(df.columns)
-            }
-        }
+                # Salvar diagnostico.json na pasta output/
+                diagnostico_path = OUTPUT_DIR / "diagnostico.json"
+                with open(diagnostico_path, "w") as f:
+                    json.dump(diagnostico, f, indent=4, ensure_ascii=False)
 
-        # Salva diagnostico.json
-        json_path = os.path.join(OUTPUT_DIR, f"diagnostico_{nome_base}.json")
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(diagnostico, f, ensure_ascii=False, indent=2)
+                st.success("Diagnóstico salvo em output/diagnostico.json")
 
-        return diagnostico, json_path
+                # --- Geração de PDFs usando fpdf2 ---
 
-    except Exception as e:
-        st.error(f"Erro ao processar com a engine: {e}")
-        return None, None
+                # PDF consolidado
+                pdf_consolidado = FPDF()
+                pdf_consolidado.add_page()
+                pdf_consolidado.set_font("Arial", size=12)
+                pdf_consolidado.cell(200, 10, text="Relatório Consolidado", new_x="LMARGIN", new_y="NEXT", align="C")
 
-# -------------------------------------------------------------------
-# Funções auxiliares para geração de PDF/ZIP
-# -------------------------------------------------------------------
-def gerar_pdf(diagnostico, nome_base):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
+                # Adicionar conteúdo do diagnóstico no PDF consolidado
+                for chave, valor in diagnostico.items():
+                    pdf_consolidado.set_font("Arial", size=10, style="B")
+                    pdf_consolidado.cell(200, 10, text=chave.upper(), new_x="LMARGIN", new_y="NEXT")
+                    pdf_consolidado.set_font("Arial", size=10)
+                    pdf_consolidado.multi_cell(0, 10, text=str(valor))
+                    pdf_consolidado.ln(5)
 
-    pdf.cell(200, 10, text=f"Diagnóstico - {nome_base}", new_x="LMARGIN", new_y="NEXT", align="C")
-    pdf.ln(10)
+                # Salvar PDF consolidado em bytes
+                pdf_bytes_consolidado = pdf_consolidado.output(dest="S").encode("latin-1")
 
-    # Escreve resultados
-    pdf.set_font("Arial", size=10)
-    resultados = diagnostico.get("resultados", {})
-    for chave, valor in resultados.items():
-        pdf.cell(0, 8, text=f"{chave}: {valor}", new_x="LMARGIN", new_y="NEXT")
+                # PDFs individuais (um para cada seção do diagnóstico)
+                pdfs_individuais = {}
+                for secao, dados in diagnostico.items():
+                    pdf = FPDF()
+                    pdf.add_page()
+                    pdf.set_font("Arial", size=12)
+                    pdf.cell(200, 10, text=f"Relatório: {secao}", new_x="LMARGIN", new_y="NEXT", align="C")
+                    pdf.set_font("Arial", size=10)
+                    pdf.multi_cell(0, 10, text=str(dados))
+                    pdf_bytes = pdf.output(dest="S").encode("latin-1")
+                    pdfs_individuais[secao] = pdf_bytes
 
-    pdf.ln(5)
-    pdf.set_font("Arial", style="B", size=10)
-    pdf.cell(0, 8, text="Tendências:", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Arial", size=10)
-    tendencias = diagnostico.get("tendencias", "")
-    pdf.multi_cell(0, 8, text=str(tendencias))
+                # --- Criar arquivo ZIP com todos os PDFs ---
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                    # Adicionar PDF consolidado
+                    zf.writestr("relatorio_consolidado.pdf", pdf_bytes_consolidado)
+                    # Adicionar PDFs individuais
+                    for nome, bytes_pdf in pdfs_individuais.items():
+                        zf.writestr(f"relatorio_{nome}.pdf", bytes_pdf)
 
-    # Salva em bytes
-    pdf_bytes = pdf.output(dest="S").encode("latin-1")
-    return pdf_bytes
+                zip_buffer.seek(0)
 
-def gerar_zip(pdf_bytes, json_path):
-    buffer = BytesIO()
-    with zipfile.ZipFile(buffer, 'w') as zf:
-        zf.writestr("relatorio.pdf", pdf_bytes)
-        with open(json_path, 'rb') as jf:
-            zf.writestr(os.path.basename(json_path), jf.read())
-    buffer.seek(0)
-    return buffer
+                # --- Botões de download ---
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        label="📥 Baixar PDF Consolidado",
+                        data=pdf_bytes_consolidado,
+                        file_name="relatorio_consolidado.pdf",
+                        mime="application/pdf"
+                    )
+                with col2:
+                    st.download_button(
+                        label="📦 Baixar ZIP com todos os PDFs",
+                        data=zip_buffer,
+                        file_name="relatorios.zip",
+                        mime="application/zip"
+                    )
 
-# -------------------------------------------------------------------
-# Interface Streamlit
-# -------------------------------------------------------------------
-def main():
-    st.set_page_config(page_title="Analisador de Dados v1.1", layout="wide")
-    st.title("Analisador de Dados (Tabela v1.1)")
+                # Limpeza do arquivo temporário (opcional)
+                file_path.unlink()
 
-    uploaded_file = st.file_uploader("Selecione um arquivo .txt ou .csv", type=["txt", "csv"])
+            except Exception as e:
+                st.error(f"Erro ao processar o arquivo: {e}")
 
-    if uploaded_file is not None:
-        df = processar_dados(uploaded_file)
-        if df is None:
-            return
-
-        st.success("Arquivo carregado com sucesso!")
-        st.dataframe(df.head())
-
-        if st.button("Processar Dados"):
-            nome_base = os.path.splitext(uploaded_file.name)[0]
-            diagnostico, json_path = processar_completo(df, nome_base)
-
-            if diagnostico is None:
-                return
-
-            st.success("Processamento concluído!")
-            st.json(diagnostico)
-
-            # Exibe gráficos simples
-            st.subheader("Gráficos")
-            numeric_cols = df.select_dtypes(include='number').columns.tolist()
-            if numeric_cols:
-                col = st.selectbox("Selecione coluna para histograma", numeric_cols)
-                fig, ax = plt.subplots()
-                df[col].hist(ax=ax, bins=20, edgecolor='black')
-                ax.set_title(f"Distribuição de {col}")
-                st.pyplot(fig)
-            else:
-                st.info("Nenhuma coluna numérica disponível para gráficos.")
-
-            # Geração de PDF e ZIP
-            pdf_bytes = gerar_pdf(diagnostico, nome_base)
-            zip_buffer = gerar_zip(pdf_bytes, json_path)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    label="📥 Baixar PDF",
-                    data=pdf_bytes,
-                    file_name=f"diagnostico_{nome_base}.pdf",
-                    mime="application/pdf"
-                )
-            with col2:
-                st.download_button(
-                    label="📦 Baixar ZIP (PDF + JSON)",
-                    data=zip_buffer,
-                    file_name=f"diagnostico_{nome_base}.zip",
-                    mime="application/zip"
-                )
-
-    else:
-        st.info("Por favor, faça upload de um arquivo.")
-
-if __name__ == "__main__":
-    main()
+else:
+    st.info("Aguardando upload de arquivo.")
