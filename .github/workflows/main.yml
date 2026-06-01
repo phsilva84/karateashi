@@ -19,27 +19,44 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --upgrade pip
+          pip install -r requirements.txt || { echo "Failed to install dependencies"; exit 1; }
 
-      - name: Run engine.py
-        run: python core/engine.py
+      - name: Run core engine
+        run: |
+          python core/engine.py || { echo "Engine execution failed"; exit 1; }
+
+      - name: Verify output file
+        run: |
+          if [ ! -f output/diagnostico.json ]; then
+            echo "Missing output/diagnostico.json"
+            exit 1
+          fi
+          echo "Diagnostico file exists"
+
+      - name: Debug listing before upload
+        run: ls -R output/
 
       - name: Install rclone
         run: |
           sudo apt-get update
-          sudo apt-get install -y rclone
+          sudo apt-get install -y rclone || { echo "rclone installation failed"; exit 1; }
 
-      - name: Configure rclone with secret
+      - name: Configure rclone
         run: |
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.GDRIVE_CREDENTIALS }}" > ~/.config/rclone/rclone.conf
+          echo "${{ secrets.GDRIVE_CREDENTIALS }}" > /tmp/gdrive-credentials.json || { echo "Failed to write credentials"; exit 1; }
+          cat > /tmp/rclone.conf << EOF
+          [gdrive]
+          type = drive
+          service_account_file = /tmp/gdrive-credentials.json
+          scope = drive
+          root_folder_id = 
+          EOF
+          echo "rclone configuration created"
 
-      - name: Debug - list generated files
-        run: ls -R
-
-      - name: Upload generated files to Google Drive
+      - name: Upload to Google Drive
         run: |
-          rclone copy . gdrive:Karate-Ashi --verbose --include "*.pdf" --include "diagnostico.json"
-        env:
-          RCLONE_CONFIG: ~/.config/rclone/rclone.conf
+          rclone --config /tmp/rclone.conf copy output/ gdrive:Karate-Ashi || { echo "Upload failed"; exit 1; }
+
+      - name: Debug listing after upload
+        run: ls -R output/
