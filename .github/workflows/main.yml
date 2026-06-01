@@ -1,4 +1,4 @@
-name: Consolidated Workflow
+name: CI with Rclone
 
 on:
   push:
@@ -6,46 +6,51 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-upload:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          set -euo pipefail
+          pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          echo "Python dependencies installed."
 
       - name: Install rclone
         run: |
           set -euo pipefail
-          echo "::debug::Installing rclone via official script"
-          curl -O https://downloads.rclone.org/rclone-current-linux-amd64.deb
-          sudo dpkg -i rclone-current-linux-amd64.deb
-          rm rclone-current-linux-amd64.deb
-          rclone version
+          curl -sSL https://rclone.org/install.sh | sudo bash
+          echo "rclone installed successfully."
 
       - name: Configure rclone
         run: |
           set -euo pipefail
-          echo "::debug::Creating rclone.conf with GDRIVE token"
           mkdir -p ~/.config/rclone
-          cat << EOF > ~/.config/rclone/rclone.conf
+          cat > ~/.config/rclone/rclone.conf <<- EOF
           [gdrive]
           type = drive
           scope = drive
           token = ${{ secrets.GDRIVE_TOKEN }}
           EOF
+          echo "rclone configuration written."
 
-      - name: Install Python dependencies and run engine
+      - name: Run engine
         run: |
           set -euo pipefail
-          echo "::debug::Installing Python dependencies"
-          pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-          echo "::debug::Running core/engine.py"
           python core/engine.py
+          echo "Engine execution completed."
 
-      - name: Upload output to Google Drive
+      - name: Upload to Google Drive
         run: |
           set -euo pipefail
-          echo "::debug::Uploading output/ to gdrive:Karate-Ashi"
           rclone copy output/ gdrive:Karate-Ashi --config ~/.config/rclone/rclone.conf --verbose
+          echo "Upload completed."
