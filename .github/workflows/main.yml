@@ -1,34 +1,49 @@
-name: Karate Ashi Automation
+name: CI Workflow
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
-  run-and-upload:
+  build-and-upload:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install rclone
         run: |
-          curl -O https://downloads.rclone.org/rclone-current-linux-amd64.deb
-          sudo dpkg -i rclone-current-linux-amd64.deb
-          rm rclone-current-linux-amd64.deb
+          curl https://rclone.org/install.sh | sudo bash
 
-      - name: Run automation and upload
-        env:
-          RCLONE_CONFIG_GDRIVE_TYPE: drive
-          RCLONE_CONFIG_GDRIVE_SCOPE: drive
-          RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
-          RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
+      - name: Configure rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [gdrive]
+          type = drive
+          scope = drive
+          token = ${{ secrets.GDRIVE_TOKEN }}
+          root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
+          EOF
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies and run engine
         run: |
           pip install -r requirements.txt
           python core/engine.py
-          rclone copy output/ gdrive: -v
+
+      - name: Debug directory listings
+        run: |
+          echo "=== data/ ==="
+          ls -R data/
+          echo "=== output/ ==="
+          ls -R output/
+
+      - name: Upload output to Google Drive
+        run: |
+          rclone -v copy output/ gdrive:
