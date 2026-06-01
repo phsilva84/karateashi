@@ -1,41 +1,51 @@
-name: Karate Ashi Automation
+name: Consolidated Workflow
+
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build-and-deploy:
+  build-and-upload:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install rclone
-        run: curl https://rclone.org/install.sh | sudo bash
-
-      - name: Decode Credentials
         run: |
-          echo "${{ secrets.GDRIVE_CREDENTIALS }}" | base64 -d > /tmp/sa.json
+          set -euo pipefail
+          echo "::debug::Installing rclone via official script"
+          curl -O https://downloads.rclone.org/rclone-current-linux-amd64.deb
+          sudo dpkg -i rclone-current-linux-amd64.deb
+          rm rclone-current-linux-amd64.deb
+          rclone version
 
       - name: Configure rclone
         run: |
-          cat > /tmp/rclone.conf << EOF
+          set -euo pipefail
+          echo "::debug::Creating rclone.conf with GDRIVE token"
+          mkdir -p ~/.config/rclone
+          cat << EOF > ~/.config/rclone/rclone.conf
           [gdrive]
           type = drive
-          service_account_file = /tmp/sa.json
           scope = drive
+          token = ${{ secrets.GDRIVE_TOKEN }}
           EOF
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Run Engine
+      - name: Install Python dependencies and run engine
         run: |
-          pip install -r requirements.txt
+          set -euo pipefail
+          echo "::debug::Installing Python dependencies"
+          pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          echo "::debug::Running core/engine.py"
           python core/engine.py
 
-      - name: Upload Direct to Folder ID
+      - name: Upload output to Google Drive
         run: |
-          # Usamos o ID da pasta diretamente no destino do comando
-          rclone --config /tmp/rclone.conf copy output/ gdrive,root_folder_id=1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23: -v
+          set -euo pipefail
+          echo "::debug::Uploading output/ to gdrive:Karate-Ashi"
+          rclone copy output/ gdrive:Karate-Ashi --config ~/.config/rclone/rclone.conf --verbose

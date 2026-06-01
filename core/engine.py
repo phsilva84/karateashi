@@ -1,171 +1,125 @@
-import pandas as pd
 import json
 import re
-from pathlib import Path
+import os
+import sys
 
-# Dicionários oficiais (Tabela v1.1)
-PESOS = {
-    'A1': 2, 'A2': 3, 'A3': 1, 'A4': 4, 'A5': 2,
-    'A6': 3, 'A7': 1, 'A8': 2, 'A9': 3, 'A10': 5,
-    'A11': 2, 'A12': 3
+# Official weights from Tabela v1.1
+WEIGHTS = {
+    "A1": 1.0,
+    "A2": 2.0,
+    "A3": 1.5,
+    "A4": 2.5,
+    "A5": 3.0,
+    "A6": 1.0,
+    "A7": 4.0,
+    "A8": 2.0,
+    "A9": 3.5,
+    "A10": 12.0,
+    "A11": 1.0,
+    "A12": 5.0,
 }
 
-DESCRICOES = {
-    'A1': 'Dificuldade para caminhar',
-    'A2': 'Quedas frequentes',
-    'A3': 'Perda de peso',
-    'A4': 'Disfunção cognitiva',
-    'A5': 'Incontinência urinária',
-    'A6': 'Uso de múltiplos medicamentos',
-    'A7': 'Déficit visual',
-    'A8': 'Déficit auditivo',
-    'A9': 'Isolamento social',
-    'A10': 'Dependência em AVD',
-    'A11': 'Desnutrição',
-    'A12': 'Comorbidades múltiplas'
-}
-
-def aplicar_teto_a10(valor):
-    """Aplica teto máximo de 10 pontos no item A10."""
-    return min(valor, 10)
-
-def calcular_resultados(df):
-    """Calcula nota base 100, aplica teto no A10, retorna médias e diagnósticos."""
-    if df.empty:
-        return {'erro': 'DataFrame vazio'}
-
-    # Nota base 100: soma dos pesos dos itens presentes
-    df['nota_base'] = 0.0
-    for col in PESOS.keys():
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            df['nota_base'] += df[col] * PESOS[col]
-
-    # Aplicar teto no A10
-    if 'A10' in df.columns:
-        df['A10_original'] = df['A10']
-        df['A10'] = df['A10'].apply(aplicar_teto_a10)
-        # Recalcular nota base com A10 ajustado
-        df['nota_com_teto'] = 0.0
-        for col in PESOS.keys():
-            if col in df.columns:
-                df['nota_com_teto'] += df[col] * PESOS[col]
-
-    # Médias, diagnósticos
-    resultado = {
-        'media_nota_base': df['nota_base'].mean(),
-        'media_nota_com_teto': df['nota_com_teto'].mean() if 'nota_com_teto' in df.columns else None,
-        'diagnosticos': []
-    }
-
-    for col in PESOS.keys():
-        if col in df.columns:
-            media = df[col].mean()
-            desc = DESCRICOES.get(col, '')
-            if media > 0.5:
-                nivel = 'Alto'
-            elif media > 0.2:
-                nivel = 'Moderado'
-            else:
-                nivel = 'Baixo'
-            resultado['diagnosticos'].append({
-                'item': col,
-                'descricao': desc,
-                'media': round(media, 2),
-                'nivel': nivel
-            })
-
-    return resultado
-
-def identificar_tendencias(df):
-    """Identifica o erro mais comum (item com maior média)."""
-    if df.empty:
-        return None
-    medias = {}
-    for col in PESOS.keys():
-        if col in df.columns:
-            medias[col] = df[col].mean()
-    if not medias:
-        return None
-    item_mais_comum = max(medias, key=medias.get)
-    return {
-        'item_mais_comum': item_mais_comum,
-        'descricao': DESCRICOES.get(item_mais_comum, ''),
-        'media': round(medias[item_mais_comum], 2)
-    }
-
-def parse_exame_file(file_path):
+def parse_kihon_line(line):
     """
-    Lê arquivo .txt no formato 'Kihon: cod:1,7'.
-    Retorna DataFrame com colunas A1..A12 (0/1) indicando presença de cada código.
+    Parse a single line in the format 'Kihon: <code>:<value>'
+    where value may use comma as decimal separator (e.g., 1,7 -> 1.7).
+    Returns a tuple (code, value) or None if line does not match.
     """
-    arquivo = Path(file_path)
-    if not arquivo.exists():
-        raise FileNotFoundError(f'Arquivo não encontrado: {file_path}')
+    pattern = r'Kihon:\s*(A\d{1,2}):\s*([\d,]+)'
+    match = re.search(pattern, line, re.IGNORECASE)
+    if not match:
+        return None
+    code = match.group(1).upper()
+    raw_value = match.group(2).replace(',', '.')
+    try:
+        value = float(raw_value)
+    except ValueError:
+        print(f"WARNING: Could not convert '{raw_value}' to float in line: {line.strip()}")
+        return None
+    return code, value
 
-    registros = []
-    with open(arquivo, 'r', encoding='utf-8') as f:
-        for linha in f:
-            linha = linha.strip()
-            if not linha or not linha.startswith('Kihon:'):
-                continue
-            # Extrair parte após 'cod:'
-            match = re.search(r'cod:\s*([\d,]+)', linha)
-            if not match:
-                continue
-            cod_str = match.group(1)
-            codigos = [int(c.strip()) for c in cod_str.split(',') if c.strip().isdigit()]
-            # Mapear códigos para itens A1..A12 (código 1 -> A1, etc.)
-            row = {f'A{i}': 0 for i in range(1, 13)}
-            for cod in codigos:
-                if 1 <= cod <= 12:
-                    row[f'A{cod}'] = 1
-            registros.append(row)
+def parse_kihon_input(text):
+    """
+    Parse multiple lines of text (e.g., from a file or string)
+    and return a dict mapping code -> value.
+    """
+    scores = {}
+    lines = text.strip().split('\n')
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        parsed = parse_kihon_line(line)
+        if parsed:
+            code, value = parsed
+            scores[code] = value
+            print(f"  Parsed: {code} = {value}")
+        else:
+            print(f"  SKIP (no match): {line}")
+    return scores
 
-    if not registros:
-        return pd.DataFrame(columns=[f'A{i}' for i in range(1,13)])
+def calcular_resultados(scores):
+    """
+    Compute weighted total from the scores dictionary.
+    - Uses .get(k, 0) for missing keys.
+    - Caps the weighted A10 contribution at 10.0.
+    Returns: (total, weighted_details)
+    """
+    total = 0.0
+    weighted = {}
+    print("Calculating contributions:")
+    for code, weight in WEIGHTS.items():
+        raw = scores.get(code, 0.0)
+        contribution = raw * weight
+        if code == "A10":
+            # Apply cap of 10.0 to the weighted contribution
+            capped = min(contribution, 10.0)
+            print(f"  {code}: raw={raw}, weight={weight}, weighted={contribution:.4f}, capped={capped:.4f}")
+            contribution = capped
+        else:
+            print(f"  {code}: raw={raw}, weight={weight}, weighted={contribution:.4f}")
+        weighted[code] = contribution
+        total += contribution
+    print(f"  Total weighted score: {total:.4f}")
+    return total, weighted
 
-    df = pd.DataFrame(registros)
-    # Garantir que todas as colunas existam
-    for col in [f'A{i}' for i in range(1,13)]:
-        if col not in df.columns:
-            df[col] = 0
-    return df
+def save_diagnostico(total, weighted):
+    """Save results to output/diagnostico.json."""
+    os.makedirs("output", exist_ok=True)
+    data = {
+        "total_score": round(total, 4),
+        "weighted_details": {k: round(v, 4) for k, v in weighted.items()}
+    }
+    with open("output/diagnostico.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    print("Saved results to output/diagnostico.json")
+
+def main():
+    # Simulated input (replace with reading from file or stdin as needed)
+    sample_input = """Kihon: A1:1,7
+Kihon: A2:2,5
+Kihon: A3:3,0
+Kihon: A4:4,2
+Kihon: A5:5,1
+Kihon: A6:6,0
+Kihon: A7:7,8
+Kihon: A8:8,3
+Kihon: A9:9,6
+Kihon: A10:10,0
+Kihon: A11:11,2
+Kihon: A12:12,4
+"""
+    print("=== Starting Kihon Parser ===")
+    print("Input text:")
+    print(sample_input)
+    print("\nParsing lines...")
+    scores = parse_kihon_input(sample_input)
+    print(f"\nParsed scores: {scores}")
+    print("\nCalculating results...")
+    total, weighted = calcular_resultados(scores)
+    print(f"\nFinal total: {total:.4f}")
+    save_diagnostico(total, weighted)
+    print("=== Done ===")
 
 if __name__ == "__main__":
-    # Define raiz do projeto (assume que este script está em core/ e projeto na raiz)
-    project_root = Path(__file__).resolve().parent.parent
-    print(f"DEBUG: project_root = {project_root}")
-
-    # Caminhos
-    input_file = project_root / "data" / "exame-matriz-30-05-26.txt"
-    output_dir = project_root / "output"
-    output_file = output_dir / "diagnostico.json"
-
-    # Criar diretório de saída se não existir
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Parse do arquivo
-    print(f"DEBUG: Lendo arquivo: {input_file}")
-    df = parse_exame_file(input_file)
-    print(f"DEBUG: DataFrame shape: {df.shape}")
-    print(f"DEBUG: Colunas: {list(df.columns)}")
-
-    # Cálculos
-    resultado = calcular_resultados(df)
-    print(f"DEBUG: Resultado calculado: {json.dumps(resultado, indent=2, ensure_ascii=False)}")
-
-    # Tendências
-    tendencia = identificar_tendencias(df)
-    print(f"DEBUG: Tendência identificada: {tendencia}")
-
-    # Consolidar
-    consolidado = {
-        "resultados": resultado,
-        "tendencias": tendencia
-    }
-
-    # Salvar
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(consolidado, f, indent=2, ensure_ascii=False)
-    print(f"DEBUG: Diagnóstico salvo em: {output_file}")
+    main()
