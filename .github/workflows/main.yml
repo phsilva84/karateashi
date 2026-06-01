@@ -1,51 +1,55 @@
-name: CI
-on: [push, workflow_dispatch]
+name: Karate-Ashi Engine Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  process_exams:
     runs-on: ubuntu-latest
     env:
-      RCLONE_CONFIG_GDRIVE_TYPE: drive
-      RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
-      RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
+      TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
+      GDRIVE_ROOT_ID: "1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23"
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies and rclone
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
         run: |
-          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y python3-pip rclone
-        shell: bash
-
-      - name: Install Python requirements
-        run: |
-          set -euo pipefail
+          sudo apt-get install -y rclone
           pip install -r requirements.txt
-        shell: bash
 
-      - name: Run engine
+      - name: Run Karate-Ashi Engine
+        run: python core/engine.py
+
+      - name: Upload Consolidated JSON to Google Drive
+        run: |
+          # Configuração dinâmica do rclone para usar o Token do Secret
+          export RCLONE_CONFIG_GDRIVE_TYPE=drive
+          export RCLONE_CONFIG_GDRIVE_TOKEN='${{ env.GDRIVE_TOKEN }}'
+          rclone copy output/relatorio_consolidado.json gdrive: --drive-root-folder-id ${{ env.GDRIVE_ROOT_ID }} -v
+
+      - name: Send Master Dojo Report to Telegram (Fail-safe)
+        # continue-on-error isola falhas de rede/API do Telegram
+        continue-on-error: true
         run: |
           set -euo pipefail
-          python core/engine.py
-        shell: bash
-
-      - name: Upload output to Google Drive
-        run: |
-          set -euo pipefail
-          rclone copy output/ gdrive: -v
-        shell: bash
-
-      - name: Send Telegram notification with report
-        env:
-          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          set -euo pipefail
-          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
-            -F chat_id="${TG_CHAT_ID}" \
-            -F document="@output/relatorio_consolidado.json" \
-            -F caption="Workflow concluído com sucesso."
-        shell: bash
+          # Prioriza o envio do relatório master em texto para o Telegram
+          if [ -f "output/relatorio_master_dojo.txt" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
+              -F chat_id="${TG_CHAT_ID}" \
+              -F document="@output/relatorio_master_dojo.txt" \
+              -F caption="Relatório Master do Dojo gerado com sucesso."
+          else
+            echo "Aviso: Relatório Master não encontrado para envio."
+          fi
