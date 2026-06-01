@@ -26,8 +26,8 @@ jobs:
       - name: Ensure output directory exists
         run: mkdir -p output
 
-      - name: Run engine_v5_2.py
-        run: python engine_v5_2.py
+      - name: Run engine.py
+        run: python engine.py
 
       - name: Install rclone
         run: |
