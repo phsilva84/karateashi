@@ -1,40 +1,41 @@
-name: Correção de dependências
+name: Karate Ashi Automation
 on:
   push:
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
-  run-script:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Install rclone
+        run: curl https://rclone.org/install.sh | sudo bash
+
+      - name: Decode Credentials
+        run: |
+          echo "${{ secrets.GDRIVE_CREDENTIALS }}" | base64 -d > /tmp/sa.json
+
+      - name: Configure rclone
+        run: |
+          cat > /tmp/rclone.conf << EOF
+          [gdrive]
+          type = drive
+          service_account_file = /tmp/sa.json
+          scope = drive
+          EOF
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.10'
 
-      - name: Instalar rclone
+      - name: Run Engine
         run: |
-          set -euo pipefail
-          curl https://rclone.org/install.sh | sudo bash
-
-      - name: Decodificar credenciais e configurar rclone.conf
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.config/rclone
-          echo "$GDRIVE_CREDENTIALS" | base64 -d > ~/.config/rclone/rclone.conf
-          # Garantir root_folder_id específico
-          if ! grep -q "root_folder_id" ~/.config/rclone/rclone.conf; then
-            echo "root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23" >> ~/.config/rclone/rclone.conf
-          fi
-        env:
-          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
-
-      - name: Instalar dependências e executar engine
-        run: |
-          set -euo pipefail
           pip install -r requirements.txt
           python core/engine.py
-        env:
-          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+
+      - name: Upload Direct to Folder ID
+        run: |
+          # Usamos o ID da pasta diretamente no destino do comando
+          rclone --config /tmp/rclone.conf copy output/ gdrive,root_folder_id=1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23: -v
