@@ -1,61 +1,64 @@
-name: Karate Ashi Automation
+name: Upload to Google Drive (Service Account with Personal Drive)
+
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  workflow_dispatch:
+
 jobs:
-  build-and-deploy:
+  upload:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Install rclone
-        run: |
-          set -euo pipefail
-          curl https://rclone.org/install.sh | sudo bash
+    - name: Decode service account credentials
+      run: |
+        echo "Decoding GDRIVE_CREDENTIALS secret..."
+        echo "${{ secrets.GDRIVE_CREDENTIALS }}" | base64 -d > /tmp/credentials.json
+        echo "Credentials saved to /tmp/credentials.json"
 
-      - name: Decode GDrive credentials
-        run: |
-          set -euo pipefail
-          echo "${{ secrets.GDRIVE_CREDENTIALS }}" | base64 --decode > /tmp/sa.json
+    - name: Install rclone
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y rclone
 
-      - name: Configure rclone
-        run: |
-          set -euo pipefail
-          cat > /tmp/rclone.conf << EOF
-          [gdrive]
-          type = drive
-          service_account_file = /tmp/sa.json
-          scope = drive
-          EOF
+    - name: Configure rclone for Google Drive using Service Account
+      run: |
+        # Create rclone config directory
+        mkdir -p ~/.config/rclone
 
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
+        # Write rclone.conf with drive_type = personal and drive_id
+        cat > ~/.config/rclone/rclone.conf << 'EOF'
+        [gdrive]
+        type = drive
+        client_id = 
+        client_secret = 
+        scope = drive.file
+        service_account_file = /tmp/credentials.json
+        root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
+        drive_id = 
+        drive_type = personal
+        use_drive_id = true
+        token = {}
+        EOF
 
-      - name: Install Python dependencies
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        echo "rclone configuration written with drive_type=personal and root_folder_id set"
 
-      - name: Run core engine
-        run: |
-          set -euo pipefail
-          python core/engine.py
+    - name: Debug - Show rclone config
+      run: |
+        echo "--- rclone config ---"
+        cat ~/.config/rclone/rclone.conf
+        echo "---"
 
-      - name: Upload output to Google Drive
-        run: |
-          set -euo pipefail
-          ls -R output/
-          rclone copy output/ gdrive:Karate-Ashi --config /tmp/rclone.conf
-
-      - name: Debug logs
-        run: |
-          set -euo pipefail
-          echo "=== Final output directory listing ==="
-          ls -R output/ || true
-          echo "=== rclone config ==="
-          cat /tmp/rclone.conf
+    - name: Run Python engine (upload logic)
+      env:
+        RCLONE_DRIVE_TYPE: personal
+        RCLONE_DRIVE_ID: ""
+        RCLONE_ROOT_FOLDER_ID: "1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23"
+        RCLONE_SERVICE_ACCOUNT_FILE: /tmp/credentials.json
+      run: |
+        echo "Starting core/engine.py with debug logs..."
+        python core/engine.py
+        echo "engine.py finished"
