@@ -1,4 +1,4 @@
-name: Karate Ashi Workflow
+name: Karate Ashi Automation
 
 on:
   push:
@@ -6,46 +6,40 @@ on:
       - main
 
 jobs:
-  build-and-upload:
+  build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Ensure output directory exists
-        run: mkdir -p output
 
       - name: Run engine.py
         run: python engine.py
 
       - name: Install rclone
         run: |
-          curl -O https://downloads.rclone.org/rclone-current-linux-amd64.deb
-          sudo dpkg -i rclone-current-linux-amd64.deb
-          rm rclone-current-linux-amd64.deb
+          sudo apt-get update
+          sudo apt-get install -y rclone
 
-      - name: Configure rclone
+      - name: Configure rclone with secret
         run: |
           mkdir -p ~/.config/rclone
-          echo "${{ secrets.GDRIVE_CREDENTIALS }}" > /tmp/gdrive_creds.json
-          cat << EOF > ~/.config/rclone/rclone.conf
-          [gdrive]
-          type = drive
-          scope = drive
-          service_account_file = /tmp/gdrive_creds.json
-          root_folder_id =
+          cat <<EOF > ~/.config/rclone/rclone.conf
+          ${{ secrets.GDRIVE_CREDENTIALS }}
           EOF
 
-      - name: Upload output to Google Drive
-        run: rclone copy output/ gdrive:Karate-Ashi/ --verbose
+      - name: Debug - list files recursively
+        run: ls -R
+
+      - name: Upload generated content to Google Drive
+        run: |
+          rclone copy --progress ./ gdrive:Karate-Ashi --include "*.pdf" --include "diagnostico.json"
