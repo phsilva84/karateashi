@@ -1,112 +1,117 @@
 import json
-import csv
 from pathlib import Path
 
-# Tabela v1.1 - Pesos e descrições
+# Dicionários de pesos e descrições
 PESOS = {
-    'var1': 0.3,
-    'var2': 0.5,
-    'var3': 0.2,
+    "A1": 1.0,
+    "A2": 2.0,
+    "A3": 1.5,
+    "A4": 2.5,
+    "A5": 3.0,
+    "A6": 1.0,
+    "A7": 4.0,
+    "A8": 2.0,
+    "A9": 3.5,
+    "A10": 12.0,
+    "A11": 1.0,
+    "A12": 5.0,
 }
 
 DESCRICOES = {
-    'var1': 'Descrição da variável 1',
-    'var2': 'Descrição da variável 2',
-    'var3': 'Descrição da variável 3',
+    "A1": "Postura incorreta",
+    "A2": "Distância inadequada",
+    "A3": "Movimento repetitivo",
+    "A4": "Força excessiva",
+    "A5": "Pressão mecânica",
+    "A6": "Vibração localizada",
+    "A7": "Iluminação inadequada",
+    "A8": "Ruído excessivo",
+    "A9": "Temperatura extrema",
+    "A10": "Carga postural estática",
+    "A11": "Estresse físico",
+    "A12": "Jornada prolongada",
 }
 
 def aplicar_teto_a10(valor: float) -> float:
-    """Aplica um teto máximo de 10 ao valor."""
+    """Aplica limite máximo de 10 pontos para A10."""
     return min(valor, 10.0)
 
-def calcular_resultados(dados: list) -> list:
-    """Processa os dados aplicando pesos e teto, retorna lista de dicionários com resultados."""
-    resultados = []
-    for linha in dados:
-        resultado = {}
-        for chave, peso in PESOS.items():
-            valor_original = float(linha.get(chave, 0))
-            valor_ponderado = valor_original * peso
-            valor_limitado = aplicar_teto_a10(valor_ponderado)
-            descricao = DESCRICOES.get(chave, 'Descrição não encontrada')
-            resultado[chave] = {
-                'valor_original': valor_original,
-                'valor_ponderado': round(valor_ponderado, 2),
-                'valor_limitado': round(valor_limitado, 2),
-                'descricao': descricao,
-            }
-        resultados.append(resultado)
-    return resultados
+def calcular_resultados(scores: dict) -> dict:
+    """Calcula o escore ponderado e normaliza para base 100."""
+    # Aplicar teto em A10
+    scores_com_teto = scores.copy()
+    if "A10" in scores_com_teto:
+        scores_com_teto["A10"] = aplicar_teto_a10(scores_com_teto["A10"])
 
-def identificar_tendencias(resultados: list) -> dict:
-    """Identifica tendências com base nos resultados (exemplo simples)."""
-    if len(resultados) < 2:
-        return {'tendencia': 'insuficiente'}
-    ultimo = resultados[-1]
-    penultimo = resultados[-2] if len(resultados) >= 2 else {}
-    tendencias = {}
-    for chave in PESOS:
-        if chave in ultimo and chave in penultimo:
-            diff = ultimo[chave]['valor_limitado'] - penultimo[chave]['valor_limitado']
-            if diff > 0.5:
-                tendencias[chave] = 'aumento'
-            elif diff < -0.5:
-                tendencias[chave] = 'queda'
-            else:
-                tendencias[chave] = 'estável'
-        else:
-            tendencias[chave] = 'indeterminado'
-    return {'tendencias': tendencias}
+    # Soma ponderada
+    total_ponderado = sum(scores_com_teto[k] * PESOS[k] for k in PESOS)
+
+    # Valor máximo possível (cada fator até 10, exceto A10 já limitado)
+    max_possivel = sum(10.0 * w for w in PESOS.values())  # 385.0
+    resultado_normalizado = (total_ponderado / max_possivel) * 100.0
+
+    return {
+        "total_ponderado": total_ponderado,
+        "resultado_base_100": round(resultado_normalizado, 2),
+        "detalhes": {k: {"peso": PESOS[k], "descricao": DESCRICOES.get(k, ""), "valor": scores_com_teto[k]} for k in PESOS}
+    }
+
+def identificar_tendencias(resultado: float) -> str:
+    """Classifica o resultado em faixas de tendência."""
+    if resultado < 30:
+        return "Baixo risco"
+    elif resultado < 60:
+        return "Médio risco"
+    elif resultado < 85:
+        return "Alto risco"
+    else:
+        return "Risco crítico"
 
 if __name__ == "__main__":
-    print("=== INÍCIO ===")
-    
-    # Define diretório raiz do projeto (pai de core/)
+    # Define diretório raiz (pai do diretório core/)
     project_root = Path(__file__).resolve().parent.parent
-    print(f"project_root: {project_root}")
-    
-    # Caminho do arquivo de entrada
-    input_file = project_root / "data" / "exame-matriz-30-05-26.txt"
-    print(f"Arquivo de entrada: {input_file}")
-    
-    # Leitura do arquivo
-    dados = []
-    with open(input_file, 'r', encoding='utf-8') as f:
-        primeira_linha = f.readline().strip()
-        # Detecta separador: vírgula ou tabulação
-        if ',' in primeira_linha:
-            separador = ','
-        elif '\t' in primeira_linha:
-            separador = '\t'
-        else:
-            separador = ','  # fallback
-        print(f"Separador detectado: {repr(separador)}")
-        f.seek(0)  # volta ao início
-        reader = csv.DictReader(f, delimiter=separador)
-        for row in reader:
-            dados.append(row)
-    print(f"Total de linhas lidas: {len(dados)}")
-    
-    # Processamento
-    print("Calculando resultados...")
-    resultados = calcular_resultados(dados)
-    print(f"Resultados calculados para {len(resultados)} registros")
-    
-    print("Identificando tendências...")
-    tendencias = identificar_tendencias(resultados)
-    print(f"Tendências: {tendencias}")
-    
-    # Saída
-    output_dir = project_root / "output"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / "diagnostico.json"
-    print(f"Salvando em: {output_file}")
-    
-    diagnostico = {
-        'resultados': resultados,
-        'tendencias': tendencias,
-    }
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(diagnostico, f, indent=2, ensure_ascii=False)
-    
-    print("=== FIM ===")
+    print("LOG: Diretório raiz do projeto:", project_root)
+
+    # Caminhos dos arquivos
+    input_path = project_root / "data" / "exame-matriz-30-05-26.txt"
+    output_path = project_root / "output" / "diagnostico.json"
+
+    # Leitura do arquivo de entrada
+    print("LOG: Lendo arquivo de entrada:", input_path)
+    with open(input_path, "r", encoding="utf-8") as f:
+        linhas = f.readlines()
+
+    # Parse das linhas – espera-se formato "A1=5.5" por linha
+    scores = {}
+    for linha in linhas:
+        linha = linha.strip()
+        if not linha or "=" not in linha:
+            continue
+        chave, valor_str = linha.split("=", 1)
+        chave = chave.strip()
+        try:
+            valor = float(valor_str.strip())
+        except ValueError:
+            print(f"LOG: Aviso – valor inválido para {chave}: '{valor_str}'")
+            continue
+        scores[chave] = valor
+
+    print("LOG: Scores extraídos:", scores)
+
+    # Cálculo dos resultados
+    resultados = calcular_resultados(scores)
+    tendencia = identificar_tendencias(resultados["resultado_base_100"])
+    resultados["tendencia"] = tendencia
+
+    print("LOG: Resultado base 100:", resultados["resultado_base_100"])
+    print("LOG: Tendência identificada:", tendencia)
+
+    # Garantir que o diretório de saída existe
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Salvar JSON
+    print("LOG: Salvando diagnóstico em:", output_path)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(resultados, f, ensure_ascii=False, indent=2)
+
+    print("LOG: Processamento concluído com sucesso.")

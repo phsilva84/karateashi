@@ -1,115 +1,88 @@
 import streamlit as st
 import json
 import os
-import io
-import zipfile
+import tempfile
 from pathlib import Path
 from fpdf import FPDF
 from core.engine import calcular_resultados, identificar_tendencias
 
 # Configuração da página
-st.set_page_config(page_title="Analisador de Dados", layout="wide")
-st.title("📊 Analisador de Dados")
-st.markdown("Faça upload de um arquivo para processar e gerar relatórios.")
+st.set_page_config(page_title="Analisador de Texto", layout="centered")
 
-# Criação da pasta de saída (output/) se não existir
+# Cria o diretório de saída se não existir
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Upload do arquivo
-uploaded_file = st.file_uploader("Escolha um arquivo", type=["csv", "xlsx", "json"])
+st.title("📄 Analisador de Texto")
+st.markdown("Faça upload de um arquivo `.txt` para análise e geração de relatório.")
+
+uploaded_file = st.file_uploader("Escolha um arquivo .txt", type="txt")
 
 if uploaded_file is not None:
-    # Botão para processar
-    if st.button("Processar Arquivo"):
-        with st.spinner("Processando..."):
-            try:
-                # Salvar temporariamente o arquivo para processamento
-                file_path = OUTPUT_DIR / uploaded_file.name
-                with open(file_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+    # Lê o conteúdo do arquivo
+    texto = uploaded_file.read().decode("utf-8")
 
-                # Chamar as funções do core.engine
-                resultados = calcular_resultados(file_path)
-                tendencias = identificar_tendencias(file_path)
+    with st.spinner("Processando..."):
+        try:
+            # Executa as funções do core
+            resultados = calcular_resultados(texto)
+            tendencias = identificar_tendencia(resultados)  # ajuste conforme a assinatura real
 
-                # Montar diagnóstico
-                diagnostico = {
-                    "resultados": resultados,
-                    "tendencias": tendencias
-                }
+            # Dicionário consolidado para o JSON
+            dados_completos = {
+                "nome_arquivo": uploaded_file.name,
+                "tamanho": len(texto),
+                "resultados": resultados,
+                "tendencias": tendencias
+            }
 
-                # Salvar diagnostico.json na pasta output/
-                diagnostico_path = OUTPUT_DIR / "diagnostico.json"
-                with open(diagnostico_path, "w") as f:
-                    json.dump(diagnostico, f, indent=4, ensure_ascii=False)
+            # Salva diagnóstico em JSON
+            json_path = OUTPUT_DIR / "diagnostico.json"
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(dados_completos, f, indent=2, ensure_ascii=False)
 
-                st.success("Diagnóstico salvo em output/diagnostico.json")
+            # Gera PDF com resumo
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", size=12)
+            pdf.cell(200, 10, text="Resumo da Análise", new_x="LMARGIN", new_y="NEXT", align="C")
+            pdf.ln(10)
 
-                # --- Geração de PDFs usando fpdf2 ---
+            # Adiciona conteúdo ao PDF
+            pdf.multi_cell(0, 10, f"Arquivo: {uploaded_file.name}")
+            pdf.multi_cell(0, 10, f"Tamanho: {len(texto)} caracteres")
+            pdf.ln(5)
+            pdf.multi_cell(0, 10, "Resultados:")
+            for chave, valor in resultados.items():
+                pdf.multi_cell(0, 8, f"  {chave}: {valor}")
+            pdf.ln(5)
+            pdf.multi_cell(0, 10, "Tendências:")
+            pdf.multi_cell(0, 8, str(tendencias))
 
-                # PDF consolidado
-                pdf_consolidado = FPDF()
-                pdf_consolidado.add_page()
-                pdf_consolidado.set_font("Arial", size=12)
-                pdf_consolidado.cell(200, 10, text="Relatório Consolidado", new_x="LMARGIN", new_y="NEXT", align="C")
+            pdf_path = OUTPUT_DIR / "resumo.pdf"
+            pdf.output(str(pdf_path))
 
-                # Adicionar conteúdo do diagnóstico no PDF consolidado
-                for chave, valor in diagnostico.items():
-                    pdf_consolidado.set_font("Arial", size=10, style="B")
-                    pdf_consolidado.cell(200, 10, text=chave.upper(), new_x="LMARGIN", new_y="NEXT")
-                    pdf_consolidado.set_font("Arial", size=10)
-                    pdf_consolidado.multi_cell(0, 10, text=str(valor))
-                    pdf_consolidado.ln(5)
+            st.success("Processamento concluído!")
 
-                # Salvar PDF consolidado em bytes
-                pdf_bytes_consolidado = pdf_consolidado.output(dest="S").encode("latin-1")
+            # Botões de download
+            with open(json_path, "rb") as f:
+                st.download_button(
+                    label="📥 Baixar JSON (diagnóstico)",
+                    data=f,
+                    file_name="diagnostico.json",
+                    mime="application/json"
+                )
 
-                # PDFs individuais (um para cada seção do diagnóstico)
-                pdfs_individuais = {}
-                for secao, dados in diagnostico.items():
-                    pdf = FPDF()
-                    pdf.add_page()
-                    pdf.set_font("Arial", size=12)
-                    pdf.cell(200, 10, text=f"Relatório: {secao}", new_x="LMARGIN", new_y="NEXT", align="C")
-                    pdf.set_font("Arial", size=10)
-                    pdf.multi_cell(0, 10, text=str(dados))
-                    pdf_bytes = pdf.output(dest="S").encode("latin-1")
-                    pdfs_individuais[secao] = pdf_bytes
+            with open(pdf_path, "rb") as f:
+                st.download_button(
+                    label="📥 Baixar PDF (resumo)",
+                    data=f,
+                    file_name="resumo.pdf",
+                    mime="application/pdf"
+                )
 
-                # --- Criar arquivo ZIP com todos os PDFs ---
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                    # Adicionar PDF consolidado
-                    zf.writestr("relatorio_consolidado.pdf", pdf_bytes_consolidado)
-                    # Adicionar PDFs individuais
-                    for nome, bytes_pdf in pdfs_individuais.items():
-                        zf.writestr(f"relatorio_{nome}.pdf", bytes_pdf)
-
-                zip_buffer.seek(0)
-
-                # --- Botões de download ---
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.download_button(
-                        label="📥 Baixar PDF Consolidado",
-                        data=pdf_bytes_consolidado,
-                        file_name="relatorio_consolidado.pdf",
-                        mime="application/pdf"
-                    )
-                with col2:
-                    st.download_button(
-                        label="📦 Baixar ZIP com todos os PDFs",
-                        data=zip_buffer,
-                        file_name="relatorios.zip",
-                        mime="application/zip"
-                    )
-
-                # Limpeza do arquivo temporário (opcional)
-                file_path.unlink()
-
-            except Exception as e:
-                st.error(f"Erro ao processar o arquivo: {e}")
+        except Exception as e:
+            st.error(f"Erro ao processar: {e}")
 
 else:
-    st.info("Aguardando upload de arquivo.")
+    st.info("Aguardando upload de arquivo ...")

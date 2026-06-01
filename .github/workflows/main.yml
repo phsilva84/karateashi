@@ -1,45 +1,61 @@
-name: Karate Ashi Workflow
+name: Deploy to Google Drive
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  run-and-upload:
+  deploy:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install rclone
-      run: |
-        curl https://rclone.org/install.sh | sudo bash
+      - name: Install rclone
+        run: |
+          echo "::group::Installing rclone"
+          set -x
+          curl -fsSL https://rclone.org/install.sh | bash
+          echo "::endgroup::"
 
-    - name: Decode service account credentials
-      env:
-        GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
-      run: |
-        echo "$GDRIVE_CREDENTIALS" | base64 -d > /tmp/sa.json
+      - name: Configure rclone
+        env:
+          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+        run: |
+          echo "::group::Configuring rclone"
+          set -x
 
-    - name: Configure rclone
-      run: |
-        cat > /tmp/rclone.conf << 'EOF'
-        [gdrive]
-        type = drive
-        service_account_file = /tmp/sa.json
-        EOF
+          # Decode base64 credentials into JSON file
+          echo "$GDRIVE_CREDENTIALS" | base64 -d > /tmp/gdrive.json
 
-    - name: Run engine
-      run: |
-        python core/engine.py
+          # Write rclone.conf with team_drive blank
+          cat > /tmp/rclone.conf << EOF
+          [gdrive]
+          type = drive
+          scope = drive
+          service_account_file = /tmp/gdrive.json
+          team_drive = 
+          EOF
 
-    - name: Debug generated file sizes
-      run: |
-        echo "Generated files before upload:"
-        ls -lh output/
+          echo "rclone.conf created:"
+          cat /tmp/rclone.conf
+          echo "::endgroup::"
 
-    - name: Upload to Google Drive (Karate-Ashi folder)
-      run: |
-        rclone --config /tmp/rclone.conf copy output/ gdrive:Karate-Ashi -v
+      - name: Copy output to Google Drive
+        run: |
+          echo "::group::Copying files"
+          set -x
+          # Check if output directory exists
+          if [ ! -d "output" ]; then
+            echo "Error: output/ directory not found" >&2
+            exit 1
+          fi
+
+          if rclone --config /tmp/rclone.conf copy output/ gdrive: --verbose; then
+            echo "Copy successful"
+          else
+            echo "Copy failed" >&2
+            exit 1
+          fi
+          echo "::endgroup::"
