@@ -1,56 +1,55 @@
-name: Karate Ashi Workflow
+name: KarateAshi Workflow
 
 on:
   push:
     branches: [ main ]
-  schedule:
-    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Install rclone
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Verify rclone installation
+        run: rclone version
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-      - name: Write service account credentials safely
-        run: |
-          printf '%s\n' "$GDRIVE_CREDENTIALS" > /tmp/gdrive-service-account.json
-          echo "Credentials written (length: $(wc -c < /tmp/gdrive-service-account.json))"
-        env:
-          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
-
-      - name: Debug - check credentials file
-        run: ls -l /tmp/gdrive-service-account.json
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
 
       - name: Run engine
         run: python core/engine.py
 
-      - name: Debug - list output folder
-        run: ls -R output/ || echo "No output directory"
+      - name: Write service account JSON safely using printf
+        run: |
+          printf '%s\n' "${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}" > /tmp/service-account.json
 
-      - name: Configure rclone for Google Drive
+      - name: Configure rclone with service account
         run: |
           cat > /tmp/rclone.conf << EOF
           [gdrive]
           type = drive
-          service_account_file = /tmp/gdrive-service-account.json
-          scope = drive.file
+          scope = drive
+          service_account_file = /tmp/service-account.json
           EOF
-          echo "rclone config created"
 
-      - name: Upload to Google Drive
-        run: rclone copy output/ gdrive:Karate-Ashi --config /tmp/rclone.conf --verbose
+      - name: Upload output/ to Google Drive (Karate-Ashi)
+        run: |
+          rclone --config /tmp/rclone.conf copy output/ gdrive:Karate-Ashi
 
-      - name: Final debug - list remote if successful
-        run: rclone ls gdrive:Karate-Ashi --config /tmp/rclone.conf || echo "Listing failed (possibly empty remote)"
+      - name: Debug - list output files
+        run: ls -R output/
