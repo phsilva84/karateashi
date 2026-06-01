@@ -1,56 +1,44 @@
-name: CI with Rclone
+name: Upload to Google Drive
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
-  build:
+  upload:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.x'
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
-          set -euo pipefail
-          pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-          echo "Python dependencies installed."
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Install rclone
         run: |
-          set -euo pipefail
-          curl -sSL https://rclone.org/install.sh | sudo bash
-          echo "rclone installed successfully."
+          curl -O https://downloads.rclone.org/rclone-current-linux-amd64.deb
+          sudo dpkg -i rclone-current-linux-amd64.deb
+          rm rclone-current-linux-amd64.deb
 
-      - name: Configure rclone
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf <<- EOF
-          [gdrive]
-          type = drive
-          scope = drive
-          token = ${{ secrets.GDRIVE_TOKEN }}
-          EOF
-          echo "rclone configuration written."
+      - name: Configure rclone with OAuth2 token
+        env:
+          RCLONE_CONFIG_GDRIVE_TYPE: drive
+          RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
+        run: echo "Rclone configuration set via environment variables"
 
-      - name: Run engine
-        run: |
-          set -euo pipefail
-          python core/engine.py
-          echo "Engine execution completed."
+      - name: Run engine.py
+        run: python engine.py
 
-      - name: Upload to Google Drive
-        run: |
-          set -euo pipefail
-          rclone copy output/ gdrive:Karate-Ashi --config ~/.config/rclone/rclone.conf --verbose
-          echo "Upload completed."
+      - name: Upload output to Google Drive
+        env:
+          RCLONE_CONFIG_GDRIVE_TYPE: drive
+          RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
+        run: rclone copy output/ "gdrive,root_folder_id=1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23:" -v

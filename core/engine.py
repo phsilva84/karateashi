@@ -1,125 +1,90 @@
 import json
-import re
 import os
 import sys
+import re
 
-# Official weights from Tabela v1.1
-WEIGHTS = {
-    "A1": 1.0,
-    "A2": 2.0,
-    "A3": 1.5,
-    "A4": 2.5,
-    "A5": 3.0,
-    "A6": 1.0,
-    "A7": 4.0,
-    "A8": 2.0,
-    "A9": 3.5,
-    "A10": 12.0,
-    "A11": 1.0,
-    "A12": 5.0,
-}
+def parse_txt(filepath):
+    students = []
+    current = None
+    pattern_nome = re.compile(r'^Nome do aluno:\s*(.+)', re.IGNORECASE)
+    pattern_nota = re.compile(r'^(Kihon|Kata|Bunkai|Kumite):\s*(\d+(?:\.\d+)?)', re.IGNORECASE)
 
-def parse_kihon_line(line):
-    """
-    Parse a single line in the format 'Kihon: <code>:<value>'
-    where value may use comma as decimal separator (e.g., 1,7 -> 1.7).
-    Returns a tuple (code, value) or None if line does not match.
-    """
-    pattern = r'Kihon:\s*(A\d{1,2}):\s*([\d,]+)'
-    match = re.search(pattern, line, re.IGNORECASE)
-    if not match:
-        return None
-    code = match.group(1).upper()
-    raw_value = match.group(2).replace(',', '.')
-    try:
-        value = float(raw_value)
-    except ValueError:
-        print(f"WARNING: Could not convert '{raw_value}' to float in line: {line.strip()}")
-        return None
-    return code, value
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
 
-def parse_kihon_input(text):
-    """
-    Parse multiple lines of text (e.g., from a file or string)
-    and return a dict mapping code -> value.
-    """
-    scores = {}
-    lines = text.strip().split('\n')
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        parsed = parse_kihon_line(line)
-        if parsed:
-            code, value = parsed
-            scores[code] = value
-            print(f"  Parsed: {code} = {value}")
-        else:
-            print(f"  SKIP (no match): {line}")
-    return scores
+            m_nome = pattern_nome.match(line)
+            if m_nome:
+                if current is not None:
+                    students.append(current)
+                current = {'aluno': m_nome.group(1).strip(),
+                           'Kihon': None, 'Kata': None,
+                           'Bunkai': None, 'Kumite': None}
+                continue
 
-def calcular_resultados(scores):
-    """
-    Compute weighted total from the scores dictionary.
-    - Uses .get(k, 0) for missing keys.
-    - Caps the weighted A10 contribution at 10.0.
-    Returns: (total, weighted_details)
-    """
+            if current is not None:
+                m_nota = pattern_nota.match(line)
+                if m_nota:
+                    key = m_nota.group(1).capitalize()  # ensure correct case
+                    current[key] = float(m_nota.group(2))
+
+    if current is not None:
+        students.append(current)
+
+    return students
+
+def calcular_nota_final(aluno):
+    # Pesos oficiais (exemplo: iguais)
+    pesos = {'Kihon': 0.25, 'Kata': 0.25, 'Bunkai': 0.25, 'Kumite': 0.25}
     total = 0.0
-    weighted = {}
-    print("Calculating contributions:")
-    for code, weight in WEIGHTS.items():
-        raw = scores.get(code, 0.0)
-        contribution = raw * weight
-        if code == "A10":
-            # Apply cap of 10.0 to the weighted contribution
-            capped = min(contribution, 10.0)
-            print(f"  {code}: raw={raw}, weight={weight}, weighted={contribution:.4f}, capped={capped:.4f}")
-            contribution = capped
-        else:
-            print(f"  {code}: raw={raw}, weight={weight}, weighted={contribution:.4f}")
-        weighted[code] = contribution
-        total += contribution
-    print(f"  Total weighted score: {total:.4f}")
-    return total, weighted
+    erros = []
 
-def save_diagnostico(total, weighted):
-    """Save results to output/diagnostico.json."""
-    os.makedirs("output", exist_ok=True)
-    data = {
-        "total_score": round(total, 4),
-        "weighted_details": {k: round(v, 4) for k, v in weighted.items()}
+    for componente, peso in pesos.items():
+        valor = aluno.get(componente)
+        if valor is None:
+            erros.append(f'{componente} não encontrado')
+        else:
+            total += valor * peso
+
+    if erros:
+        # Se faltar algum componente, nota fica 0 ou parcial?
+        # Vamos atribuir 0 para componentes faltantes (já tratado)
+        pass
+
+    nota_base100 = total  # soma ponderada, base 100
+    nota_final = nota_base100 / 10.0  # converter para base 10
+    nota_final = min(nota_final, 10.0)  # teto de 10.0
+
+    # Tendência simplificada
+    if nota_final >= 8.0:
+        tendencia = 'positiva'
+    elif nota_final >= 5.0:
+        tendencia = 'neutra'
+    else:
+        tendencia = 'negativa'
+
+    return {
+        'aluno': aluno['aluno'],
+        'nota_final': round(nota_final, 2),
+        'detalhes_erros': erros,
+        'tendencia': tendencia
     }
-    with open("output/diagnostico.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    print("Saved results to output/diagnostico.json")
 
 def main():
-    # Simulated input (replace with reading from file or stdin as needed)
-    sample_input = """Kihon: A1:1,7
-Kihon: A2:2,5
-Kihon: A3:3,0
-Kihon: A4:4,2
-Kihon: A5:5,1
-Kihon: A6:6,0
-Kihon: A7:7,8
-Kihon: A8:8,3
-Kihon: A9:9,6
-Kihon: A10:10,0
-Kihon: A11:11,2
-Kihon: A12:12,4
-"""
-    print("=== Starting Kihon Parser ===")
-    print("Input text:")
-    print(sample_input)
-    print("\nParsing lines...")
-    scores = parse_kihon_input(sample_input)
-    print(f"\nParsed scores: {scores}")
-    print("\nCalculating results...")
-    total, weighted = calcular_resultados(scores)
-    print(f"\nFinal total: {total:.4f}")
-    save_diagnostico(total, weighted)
-    print("=== Done ===")
+    input_file = sys.argv[1] if len(sys.argv) > 1 else 'input.txt'
+    output_dir = 'output'
+    output_file = os.path.join(output_dir, 'diagnostico.json')
 
-if __name__ == "__main__":
+    alunos = parse_txt(input_file)
+    resultados = [calcular_nota_final(a) for a in alunos]
+
+    os.makedirs(output_dir, exist_ok=True)
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(resultados, f, ensure_ascii=False, indent=2)
+
+    print(f'LOG: Processados {len(alunos)} alunos.')
+
+if __name__ == '__main__':
     main()
