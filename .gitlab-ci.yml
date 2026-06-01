@@ -8,7 +8,7 @@ calculate:
   image: python:3.10-slim
   script:
     - pip install --no-cache-dir -r requirements.txt 2>/dev/null || echo "No requirements.txt found; skipping pip install"
-    - python engine_v5_2.py
+    - python engine.py
   artifacts:
     paths:
       - "*.pdf"
