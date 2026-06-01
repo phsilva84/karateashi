@@ -19,11 +19,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run engine.py
-        run: python engine.py
+        run: python core/engine.py
 
       - name: Install rclone
         run: |
@@ -33,13 +33,13 @@ jobs:
       - name: Configure rclone with secret
         run: |
           mkdir -p ~/.config/rclone
-          cat <<EOF > ~/.config/rclone/rclone.conf
-          ${{ secrets.GDRIVE_CREDENTIALS }}
-          EOF
+          echo "${{ secrets.GDRIVE_CREDENTIALS }}" > ~/.config/rclone/rclone.conf
 
-      - name: Debug - list files recursively
+      - name: Debug - list generated files
         run: ls -R
 
-      - name: Upload generated content to Google Drive
+      - name: Upload generated files to Google Drive
         run: |
-          rclone copy --progress ./ gdrive:Karate-Ashi --include "*.pdf" --include "diagnostico.json"
+          rclone copy . gdrive:Karate-Ashi --verbose --include "*.pdf" --include "diagnostico.json"
+        env:
+          RCLONE_CONFIG: ~/.config/rclone/rclone.conf

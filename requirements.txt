@@ -1,5 +1,5 @@
-reportlab
 pandas
 streamlit
 fpdf2
-zipfile36
+rclone-python
+pathlib

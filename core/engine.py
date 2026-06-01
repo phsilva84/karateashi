@@ -1,104 +1,105 @@
-import pandas as pd
+import os
+import json
+from pathlib import Path
 
-# Dicionário de descontos da Tabela v1.1 (A1-A12) – valores em pontos perdidos
+# Dicionários de pesos e descrições (exemplos - substituir conforme necessário)
 PESOS = {
-    'A1': 1.0,
-    'A2': 2.0,
-    'A3': 1.5,
-    'A4': 2.5,
-    'A5': 3.0,
-    'A6': 1.0,
-    'A7': 4.0,
-    'A8': 2.0,
-    'A9': 3.5,
-    'A10': 12.0,  # será limitado a -10.0 (na prática desconto ≤10)
-    'A11': 1.0,
-    'A12': 5.0
+    "criterio_a": 0.4,
+    "criterio_b": 0.3,
+    "criterio_c": 0.2,
+    "criterio_d": 0.1,
 }
 
-# Dicionário de descrições das falhas técnicas
 DESCRICOES = {
-    'A1': 'Postura incorreta',
-    'A2': 'Distância inadequada',
-    'A3': 'Timing errado',
-    'A4': 'Falta de concentração',
-    'A5': 'Execução incompleta',
-    'A6': 'Deslocamento incorreto',
-    'A7': 'Ritmo quebrado',
-    'A8': 'Respiração inadequada',
-    'A9': 'Finalização ausente',
-    'A10': 'Excesso de força no kumite',
-    'A11': 'Orientação errada',
-    'A12': 'Falta de continuidade'
+    "criterio_a": "Descrição do critério A",
+    "criterio_b": "Descrição do critério B",
+    "criterio_c": "Descrição do critério C",
+    "criterio_d": "Descrição do critério D",
 }
 
-def aplicar_teto_a10(valor):
-    """Limita o desconto de A10 a no máximo 10 pontos (teto de -10.0)."""
-    return min(valor, 10.0)  # desconto não pode ultrapassar 10
 
-def calcular_resultados(df):
+def calcular_resultados(dados: list) -> dict:
     """
-    Recebe um DataFrame com colunas 'Aluno' e códigos A1-A12.
-    Calcula nota final (base 100), aplica teto de -10.0 para A10 no kumite.
-    Retorna um DataFrame com médias e uma lista de diagnósticos técnicos.
+    Calcula os resultados com base nos dados fornecidos.
+    Esta é uma implementação de exemplo que deve ser substituída.
     """
-    # Faz uma cópia para não modificar original
-    df_trabalho = df.copy()
-    alunos = df_trabalho['Aluno'].tolist()
+    resultados = {}
+    for chave, peso in PESOS.items():
+        resultados[chave] = sum(dado.get(chave, 0) * peso for dado in dados)
+    return resultados
 
-    # Lista dos códigos de falha
-    codigos = [f'A{i}' for i in range(1, 13)]
 
-    # Calcula a penalidade total por aluno, aplicando o teto no A10
-    penalidade_total = []
-    diagnosticos = []
-    for _, row in df_trabalho.iterrows():
-        soma = 0.0
-        falhas = []
-        for cod in codigos:
-            valor = row.get(cod, 0)  # assume 0 se coluna ausente
-            peso = PESOS.get(cod, 0)
-            if cod == 'A10':
-                # aplica teto no peso
-                peso_aplicado = aplicar_teto_a10(peso)
-            else:
-                peso_aplicado = peso
-            soma += valor * peso_aplicado
-            if valor != 0:  # falha presente
-                falhas.append(cod)
-        penalidade_total.append(soma)
-        diagnosticos.append(falhas)
+def identificar_tendencias(resultados: dict) -> list:
+    """
+    Identifica tendências a partir dos resultados calculados.
+    Implementação de exemplo – ajustar conforme necessidade.
+    """
+    tendencias = []
+    for chave, valor in resultados.items():
+        if valor > 0.5:
+            tendencias.append(f"{chave}: tendência alta ({valor:.2f})")
+        else:
+            tendencias.append(f"{chave}: tendência baixa ({valor:.2f})")
+    return tendencias
 
-    # Nota final = 100 - penalidade (não negativa)
-    notas_finais = [max(100 - p, 0) for p in penalidade_total]
 
-    # Monta DataFrame de resultados por aluno
-    df_resultados = pd.DataFrame({
-        'Aluno': alunos,
-        'NotaFinal': notas_finais,
-        'Falhas': diagnosticos
-    })
+if __name__ == "__main__":
+    # Cria diretório output se não existir
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+    print("[LOG] Diretório 'output' verificado/criado.")
 
-    # Cálculo das médias
-    media_final = df_resultados['NotaFinal'].mean()
+    # Procura pelo arquivo de entrada na raiz do projeto
+    # Assume que o script está em core/engine.py, então a raiz é o diretório pai de core/
+    script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parent
+    arquivo_entrada = project_root / "exame-matriz-30-05-26.txt"
 
-    # Média de ocorrência de cada código (frequência relativa)
-    medias_codigos = {cod: df_trabalho[cod].mean() for cod in codigos}
+    if not arquivo_entrada.exists():
+        print(f"[ERRO] Arquivo '{arquivo_entrada}' não encontrado.")
+        exit(1)
 
-    # Cria DataFrame de médias
-    medias_dict = {
-        'Metrica': ['Media_Final'] + codigos,
-        'Valor': [media_final] + [medias_codigos[cod] for cod in codigos]
+    print(f"[LOG] Arquivo encontrado: {arquivo_entrada}")
+
+    # Lê os dados do arquivo (formato livre – ajuste conforme necessário)
+    with open(arquivo_entrada, "r") as f:
+        linhas = f.readlines()
+
+    # Converte linhas para uma lista de dicionários (exemplo: CSV simples)
+    # Esta conversão é ilustrativa; adapte ao formato real do arquivo
+    dados = []
+    for linha in linhas:
+        partes = linha.strip().split(",")
+        if len(partes) >= 4:
+            registro = {
+                "criterio_a": float(partes[0]),
+                "criterio_b": float(partes[1]),
+                "criterio_c": float(partes[2]),
+                "criterio_d": float(partes[3]),
+            }
+            dados.append(registro)
+
+    print(f"[LOG] {len(dados)} registros carregados.")
+
+    # Executa o cálculo
+    resultados = calcular_resultados(dados)
+    print("[LOG] Cálculo realizado.")
+
+    # Identifica tendências
+    tendencias = identificar_tendencias(resultados)
+    print("[LOG] Tendências identificadas.")
+
+    # Monta o diagnóstico completo
+    diagnostico = {
+        "resultados": resultados,
+        "tendencias": tendencias,
+        "descricoes": DESCRICOES,
     }
-    df_medias = pd.DataFrame(medias_dict)
 
-    return df_medias, diagnosticos
+    # Salva em output/diagnostico.json
+    caminho_saida = output_dir / "diagnostico.json"
+    with open(caminho_saida, "w", encoding="utf-8") as f:
+        json.dump(diagnostico, f, ensure_ascii=False, indent=2)
 
-def identificar_tendencias(df):
-    """
-    Identifica o erro mais comum do grupo (código com maior soma de ocorrências).
-    """
-    codigos = [f'A{i}' for i in range(1, 13)]
-    contagens = {cod: df[cod].sum() for cod in codigos}
-    mais_comum = max(contagens, key=contagens.get)
-    return mais_comum, DESCRICOES.get(mais_comum, 'Descrição não encontrada')
+    print(f"[LOG] Diagnóstico salvo em: {caminho_saida}")
+    print("[LOG] Execução concluída com sucesso.")
