@@ -3,12 +3,11 @@ import logging
 import os
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# ----------------------------------------------------------------------
-# Configuration
-# ----------------------------------------------------------------------
+# Configuração de Logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -22,17 +21,14 @@ OUTPUT_DIR = Path('output')
 OUTPUT_FILE_JSON = OUTPUT_DIR / 'relatorio_consolidado.json'
 OUTPUT_FILE_MASTER = OUTPUT_DIR / 'relatorio_master_dojo.txt'
 
-# Official weight table v1.1
 WEIGHT_TABLE: Dict[str, float] = {
-    'A1': 1.0, 'A2': 2.0, 'A3': 1.5, 'A4': 2.5, 'A5': 3.0, 'A6': 1.0,
-    'A7': 4.0, 'A8': 2.0, 'A9': 3.5, 'A10': 12.0, 'A11': 1.0, 'A12': 5.0,
+    'A1': 1.0, 'A2': 2.0, 'A3': 1.5, 'A4': 2.5, 'A5': 3.0,
+    'A6': 1.0, 'A7': 4.0, 'A8': 2.0, 'A9': 3.5, 'A10': 12.0,
+    'A11': 1.0, 'A12': 5.0,
 }
 
 CATEGORIES = ['Kihon', 'Kata', 'Bunkai', 'Kumite']
 
-# ----------------------------------------------------------------------
-# Parsing helpers
-# ----------------------------------------------------------------------
 def _parse_evaluator(line: str) -> Optional[str]:
     m = re.match(r'Avaliador\s+\d+\s+Sensei\s+\[(.+?)\]:\s*$', line.strip())
     return m.group(1).strip() if m else None
@@ -56,8 +52,7 @@ def _parse_category_code(line: str) -> Optional[str]:
 
 def parse_file(filepath: Path) -> Dict[str, List[Dict[str, Any]]]:
     students: Dict[str, List[Dict[str, Any]]] = {}
-    current_evaluator = None
-    current_eval = None
+    current_evaluator, current_student, current_eval = None, None, None
 
     with open(filepath, 'r', encoding='utf-8') as f:
         for line in f:
@@ -66,29 +61,24 @@ def parse_file(filepath: Path) -> Dict[str, List[Dict[str, Any]]]:
             
             ev = _parse_evaluator(stripped)
             if ev:
-                current_evaluator = ev
+                current_evaluator, current_student, current_eval = ev, None, None
                 continue
 
             st = _parse_student(stripped)
-            if st:
-                if current_evaluator is None: continue
+            if st and current_evaluator:
+                current_student = st
                 current_eval = {'evaluator': current_evaluator, 'categories': {cat: [] for cat in CATEGORIES}}
-                students.setdefault(st, []).append(current_eval)
+                students.setdefault(current_student, []).append(current_eval)
                 continue
 
             cat = _parse_category_code(stripped)
-            if cat and current_eval is not None:
+            if cat and current_eval:
                 codes = _parse_codes(stripped)
                 if codes: current_eval['categories'][cat].extend(codes)
     return students
 
-# ----------------------------------------------------------------------
-# Consolidation logic
-# ----------------------------------------------------------------------
 def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> Dict[str, Any]:
-    totals = []
-    all_descontos = []
-
+    totals, all_descontos = [], []
     for ev in evaluations:
         total = 0.0
         for cat in CATEGORIES:
@@ -112,34 +102,25 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
         'descontos_detalhados': all_descontos
     }
 
-def generate_master_text_report(results: List[Dict[str, Any]]) -> str:
-    """Gera o relatório Master formatado para o Telegram."""
-    if not results: return "Nenhum resultado processado."
+def gerar_relatorio_master(results: List[Dict[str, Any]]):
+    """Gera o resumo executivo em TXT para os Senseis."""
+    if not results: return
     
-    avg_dojo = sum(r['nota_final'] for r in results) / len(results)
-    aprovados = [r for r in results if r['status'] == 'Aprovado']
+    media_dojo = sum(r['nota_final'] for r in results) / len(results)
+    contador_erros = Counter([d['codigo'] for r in results for d in r['descontos_detalhados']])
     
-    report = [
-        "🥋 *RELATÓRIO MASTER DOJO - KARATE-ASHI*",
-        "="*35,
-        f"Média Geral do Dojo: {avg_dojo:.2f}",
-        f"Total de Alunos: {len(results)}",
-        f"Aprovados: {len(aprovados)} | Reprovados: {len(results) - len(aprovados)}",
-        "-"*35,
-        "DETALHAMENTO POR ALUNO:"
-    ]
-    
-    for r in sorted(results, key=lambda x: x['nome']):
-        icon = "✅" if r['status'] == 'Aprovado' else "❌"
-        report.append(f"{icon} {r['nome']}: {r['nota_final']} ({r['status']})")
-    
-    report.append("="*35)
-    report.append("_Dados brutos sincronizados no Drive._")
-    return "\n".join(report)
+    with open(OUTPUT_FILE_MASTER, 'w', encoding='utf-8') as f:
+        f.write("=== RELATÓRIO MASTER DO DOJO ===\n")
+        f.write(f"Média Geral do Dojo: {media_dojo:.2f}\n\n")
+        f.write("--- Desempenho por Aluno ---\n")
+        for r in sorted(results, key=lambda x: x['nome']):
+            f.write(f"{r['nome']}: {r['nota_final']} - {r['status']}\n")
+        
+        f.write("\n--- Destaques Técnicos (Erros Frequentes) ---\n")
+        for cod, qtd in contador_erros.most_common(5):
+            f.write(f"{cod}: {qtd} ocorrências\n")
+    logger.info("Relatório Master salvo em %s", OUTPUT_FILE_MASTER)
 
-# ----------------------------------------------------------------------
-# Execution
-# ----------------------------------------------------------------------
 def run():
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -152,23 +133,16 @@ def run():
         students = parse_file(filepath)
         for student, evals in students.items():
             all_students.setdefault(student, []).extend(evals)
-        
-        # Mover para processados
+        # Move para processados
         dest = PROCESSED_DIR / filepath.name
         filepath.rename(dest)
 
     results = [compute_student_result(st, ev) for st, ev in all_students.items()]
 
     if results:
-        # 1. Salva JSON Consolidado (Drive)
         with open(OUTPUT_FILE_JSON, 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
-        
-        # 2. Salva Relatório Master Texto (Telegram)
-        with open(OUTPUT_FILE_MASTER, 'w', encoding='utf-8') as f:
-            f.write(generate_master_text_report(results))
-            
-        logger.info("Processamento concluído. Arquivos gerados em output/")
+        gerar_relatorio_master(results)
 
 if __name__ == '__main__':
     run()

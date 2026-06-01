@@ -1,55 +1,57 @@
-name: Karate-Ashi Engine Pipeline
-
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+name: CI
+on: [push, workflow_dispatch]
 
 jobs:
-  process_exams:
+  build:
     runs-on: ubuntu-latest
     env:
-      TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
-      GDRIVE_ROOT_ID: "1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23"
+      RCLONE_CONFIG_GDRIVE_TYPE: drive
+      RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
+      RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y rclone
-          pip install -r requirements.txt
-
-      - name: Run Karate-Ashi Engine
-        run: python core/engine.py
-
-      - name: Upload Consolidated JSON to Google Drive
-        run: |
-          # Configuração dinâmica do rclone para usar o Token do Secret
-          export RCLONE_CONFIG_GDRIVE_TYPE=drive
-          export RCLONE_CONFIG_GDRIVE_TOKEN='${{ env.GDRIVE_TOKEN }}'
-          rclone copy output/relatorio_consolidado.json gdrive: --drive-root-folder-id ${{ env.GDRIVE_ROOT_ID }} -v
-
-      - name: Send Master Dojo Report to Telegram (Fail-safe)
-        # continue-on-error isola falhas de rede/API do Telegram
-        continue-on-error: true
+      - name: Install dependencies and rclone
         run: |
           set -euo pipefail
-          # Prioriza o envio do relatório master em texto para o Telegram
-          if [ -f "output/relatorio_master_dojo.txt" ]; then
-            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
-              -F chat_id="${TG_CHAT_ID}" \
-              -F document="@output/relatorio_master_dojo.txt" \
-              -F caption="Relatório Master do Dojo gerado com sucesso."
-          else
-            echo "Aviso: Relatório Master não encontrado para envio."
-          fi
+          sudo apt-get update
+          sudo apt-get install -y python3-pip rclone
+        shell: bash
+
+      - name: Install Python requirements
+        run: |
+          set -euo pipefail
+          pip install -r requirements.txt
+        shell: bash
+
+      - name: Run engine
+        run: |
+          set -euo pipefail
+          # Garante que a pasta de output existe antes do motor rodar
+          mkdir -p output
+          python core/engine.py
+        shell: bash
+
+      - name: Upload output to Google Drive
+        run: |
+          set -euo pipefail
+          # Copia o conteúdo da pasta output para a raiz configurada no Drive
+          rclone copy output/ gdrive: -v
+        shell: bash
+
+      - name: Send Telegram notification with Master Report
+        # continue-on-error isola falhas de notificação do sucesso do pipeline
+        continue-on-error: true
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          # Envia o Relatório Master (TXT) para os Senseis
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
+            -F chat_id="${TG_CHAT_ID}" \
+            -F document="@output/relatorio_master_dojo.txt" \
+            -F caption="Relatório Master do Dojo - Workflow concluído."
+        shell: bash
