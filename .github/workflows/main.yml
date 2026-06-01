@@ -31,10 +31,7 @@ jobs:
           mvn test -Dkarate.options="--tags @smoke" -Dtest=KarateRunner
 
       - name: Debug: list output files
-        run: |
-          set -euo pipefail
-          echo "=== Directory tree after tests ==="
-          ls -R output/ || echo "output/ directory not found"
+        run: set -euo pipefail && echo "=== Directory tree after tests ===" && ls -R output/ || echo "output/ directory not found"
 
       - name: Configure rclone (Google Drive)
         run: |
