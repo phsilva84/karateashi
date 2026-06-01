@@ -1,45 +1,62 @@
-name: Main Workflow
+name: Karateashi Pipeline
 
 on:
   push:
     branches: [ main ]
-  schedule:
-    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.x'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt || true
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Run engine
-      run: python core/engine.py
+      - name: Run core engine
+        run: python core/engine.py
 
-    - name: Debug: list output files
-      run: |
-        set -euo pipefail
-        echo "Listing output files:"
-        ls -la output/ || echo "No output directory"
-        echo "Debug complete"
+      - name: Debug: list output files
+        run: |
+          echo "Listing output directory:"
+          ls -lah output/
+          echo "---"
 
-    - name: Telegram notification
-      run: |
-        curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage \
-          -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-          -d text="Workflow executado com sucesso."
+      - name: Install rclone
+        run: |
+          curl -O https://downloads.rclone.org/rclone-current-linux-amd64.deb
+          sudo dpkg -i rclone-current-linux-amd64.deb
+          rm rclone-current-linux-amd64.deb
 
-    - name: Rclone sync (OAuth2)
-      run: |
-        rclone sync output/ remote:backup --config rclone.conf || echo "Rclone sync failed"
+      - name: Upload to Google Drive via rclone
+        env:
+          RCLONE_CONFIG_GDRIVE_TYPE: drive
+          RCLONE_CONFIG_GDRIVE_CLIENT_ID: "202264815644.apps.googleusercontent.com"
+          RCLONE_CONFIG_GDRIVE_CLIENT_SECRET: "X4Z3caPZQfF1bGmP6sGj"
+          RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
+          RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: "1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23"
+        run: |
+          rclone copy output/ gdrive:karateashi_output/ --verbose
+
+      - name: Send Telegram notification with report
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendDocument" \
+            -F chat_id="${TELEGRAM_CHAT_ID}" \
+            -F document=@output/relatorio_consolidado.json \
+            -F caption="Relatório consolidado gerado com sucesso."
