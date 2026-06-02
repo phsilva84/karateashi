@@ -14,7 +14,7 @@ WEIGHT_TABLE = {
     'A7': 1.0, 'A8': 0.5, 'A9': 1.0, 'A10': 2.5, 'A11': 1.0, 'A12': 0.5,
 }
 
-# Recomendações Técnicas
+# Significados para Relatório Pedagógico
 CODE_MEANINGS = {
     'A1': {'descricao': 'Base incorreta', 'recomendacao': 'Trabalhar posicionamento de pés e distribuição de peso'},
     'A2': {'descricao': 'Execução técnica incorreta', 'recomendacao': 'Revisar forma correta com instrutor'},
@@ -30,18 +30,18 @@ CODE_MEANINGS = {
     'A12': {'descricao': 'Tensão / respiração inadequada', 'recomendacao': 'Trabalhar relaxamento e respiração'}
 }
 
-# Elogios
+# Elogios (Pontos Positivos)
 PONTOS_POSITIVOS = {
-    'A1': 'Alunos com bom trabalho de bases e posicionamento de pés',
-    'A2': 'Alunos com boa execução técnica e forma correta',
-    'A3': 'Alunos com boa transferência de peso e potência',
-    'A4': 'Alunos com boa respiração sincronizada e vocalização',
-    'A5': 'Alunos com excelente memorização e execução de kata',
-    'A6': 'Alunos com excelente concentração e foco visual',
-    'A7': 'Alunos com excelente estabilidade e equilíbrio',
-    'A8': 'Alunos com excelente sincronização e ritmo',
-    'A9': 'Alunos com excelente defesa e contra-ataques',
-    'A10': 'Alunos com excelente controle e segurança no kumite',
-    'A11': 'Alunos com excelente ma-ai (distância correta)',
-    'A12': 'Alunos com excelente relaxamento e respiração'
+    'A1': 'Excelente trabalho de bases e posicionamento de pés',
+    'A2': 'Ótima execução técnica e forma correta',
+    'A3': 'Boa transferência de peso e potência nos golpes',
+    'A4': 'Kiai forte e respiração sincronizada',
+    'A5': 'Domínio total do Embusen (trajeto do Kata)',
+    'A6': 'Foco e olhar impecáveis durante as técnicas',
+    'A7': 'Estabilidade e equilíbrio mantidos em todos os níveis',
+    'A8': 'Ritmo e cadência de execução excelentes',
+    'A9': 'Defesa ativa e contra-ataques precisos',
+    'A10': 'Controle absoluto de força e segurança com o parceiro',
+    'A11': 'Ma-ai (distância) correta em todas as situações',
+    'A12': 'Relaxamento e respiração adequados'
 }

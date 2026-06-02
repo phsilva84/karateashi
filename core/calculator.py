@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from collections import Counter
 from core.config import WEIGHT_TABLE, CATEGORIES, CODE_MEANINGS, PONTOS_POSITIVOS
 
@@ -32,7 +32,8 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
         'quorum': len(evaluations), 'descontos_detalhados': all_descontos
     }
 
-def analisar_pedagogico(results: List[Dict[str, Any]]):
+def analisar_dojo(results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+    """Gera recomendações baseadas em consenso e pontos positivos."""
     total_alunos = len(results)
     stats = {}
     for res in results:
