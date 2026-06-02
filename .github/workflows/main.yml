@@ -5,10 +5,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # SRE: Garantia de localidade para evitar corrupção de caracteres
       LANG: C.UTF-8
       LC_ALL: C.UTF-8
-      # Configurações do Rclone via Env Vars
       RCLONE_CONFIG_GDRIVE_TYPE: drive
       RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
       RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: ${{ secrets.GDRIVE_ROOT_ID }}
@@ -30,8 +28,7 @@ jobs:
 
       - name: Upload to Google Drive
         run: |
-          # SRE: Forçamos o rclone a usar o ID da pasta como destino absoluto
-          # O uso de 'gdrive,root_folder_id=...' garante que o rclone ignore o padrão e use o ID do Secret
+          # SRE: Força o rclone a usar o ID da pasta como destino absoluto
           rclone copy output/ "gdrive,root_folder_id=${{ secrets.GDRIVE_ROOT_ID }}:" -v --drive-server-side-across-configs
 
       - name: Send Telegram notification
@@ -40,14 +37,10 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # SRE: Localização dinâmica do artefato master
           MASTER_FILE=$(ls -t output/relatorio_master_dojo_*.txt | head -1)
-          
           if [ -f "$MASTER_FILE" ]; then
             curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
               -F chat_id="${TG_CHAT_ID}" \
               -F document="@$MASTER_FILE" \
               -F caption="🥋 Relatório Master do Dojo - Exame Concluído."
-          else
-            echo "Aviso: Nenhum relatório master encontrado para envio."
           fi
