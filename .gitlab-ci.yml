@@ -22,3 +22,4 @@ ai_analysis:
     - curl -X POST -H "Content-Type: application/json" -d '{"status":"completed","project":"karate-ashi","artifact":"PDF generated"}' https://your-webhook-url.example.com/ai-integration
   needs:
     - calculate
+    
