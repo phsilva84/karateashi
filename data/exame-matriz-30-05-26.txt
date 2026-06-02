@@ -47,6 +47,7 @@ Bunkai: cod:3,1
 Kumite: cod:12,11,4,3,8
 Observação: Mais carga nos golpes
 
+Faixa Verde:
 Nome do aluno: Marcos 
 Kihon: cod:3,1,2,2,2
 Kata: cod:1,6,1,1,6,7,5,2
