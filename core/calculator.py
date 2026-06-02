@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Tuple
 from collections import Counter
-from core.config import WEIGHT_TABLE, CATEGORIES, CODE_MEANINGS, PONTOS_POSITIVOS
+from core.config import WEIGHT_TABLE, CATEGORIES, RECOMENDACOES, PONTOS_POSITIVOS
 
 def compute_category_score(codes: List[int]) -> float:
     score = 25.0
@@ -11,7 +11,7 @@ def compute_category_score(codes: List[int]) -> float:
     return max(0.0, score)
 
 def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> Dict[str, Any]:
-    notas_finais = []
+    notas_avaliadores = []
     all_descontos = []
     for ev in evaluations:
         soma_aluno = 0.0
@@ -24,8 +24,8 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
                     'codigo': f'A{c}', 'categoria': cat, 
                     'valor': WEIGHT_TABLE.get(f'A{c}', 0.0), 'avaliador': ev['evaluator']
                 })
-        notas_finais.append(soma_aluno)
-    media = sum(notas_finais) / len(notas_finais) if notas_finais else 0.0
+        notas_avaliadores.append(soma_aluno)
+    media = sum(notas_avaliadores) / len(notas_avaliadores) if notas_avaliadores else 0.0
     return {
         'nome': student, 'nota_final': round(media, 2),
         'status': 'Aprovado' if media >= 70 else 'Reprovado',
@@ -33,7 +33,6 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
     }
 
 def analisar_dojo(results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
-    """Gera recomendações baseadas em consenso e pontos positivos."""
     total_alunos = len(results)
     stats = {}
     for res in results:
@@ -42,15 +41,30 @@ def analisar_dojo(results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
             stats.setdefault(cod, {}).setdefault(av, set()).add(aluno)
     
     recomendações = []
+    codigos_com_erro = set()
+    
     for cod in sorted(stats.keys(), key=lambda x: sum(len(s) for s in stats[x].values()), reverse=True):
         av_dict = stats[cod]
         consenso = set.intersection(*[set(s) for s in av_dict.values()])
         pct = (len(consenso) / total_alunos) * 100
-        prefix = "🔴 CRÍTICO" if pct >= 70 else "🟠 IMPORTANTE" if pct >= 50 else "🟡 ATENÇÃO"
-        m = CODE_MEANINGS.get(cod, {})
-        recomendações.append(f"{prefix} ({pct:.0f}% consenso): {m.get('descricao')} — {m.get('recomendacao')}")
+        
+        config = RECOMENDACOES.get(cod, {})
+        threshold = config.get('threshold', 0.30) * 100
+        
+        if pct >= threshold:
+            prefix = config.get('severidade', '🟡 ATENÇÃO')
+            recomendações.append(f"{prefix} ({pct:.0f}% consenso): {config.get('descricao')} — {config.get('recomendacao')}")
+        
+        codigos_com_erro.add(cod)
 
-    cod_freq = Counter([d['codigo'] for r in results for d in r['descontos_detalhados']])
-    elogios = [PONTOS_POSITIVOS[c] for c in (set(PONTOS_POSITIVOS.keys()) - set(cod_freq.keys()))]
+    elogios = []
+    for cod, texto in PONTOS_POSITIVOS.items():
+        if cod not in codigos_com_erro:
+            elogios.append(f"EXCELÊNCIA: {texto}")
+        else:
+            alunos_com_erro = set().union(*stats[cod].values())
+            incidencia = (len(alunos_com_erro) / total_alunos) * 100
+            if incidencia < 15:
+                elogios.append(f"FORÇA: {texto} ({100-incidencia:.0f}% de acerto)")
     
     return recomendações, elogios

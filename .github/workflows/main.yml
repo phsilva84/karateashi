@@ -9,7 +9,6 @@ jobs:
       LC_ALL: C.UTF-8
       RCLONE_CONFIG_GDRIVE_TYPE: drive
       RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
-      # ID da pasta do Dojo para o rclone
       GDRIVE_FOLDER_ID: 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
 
     steps:
@@ -26,7 +25,7 @@ jobs:
         run: |
           mkdir -p output
           # SRE: Baixa os relatórios do Drive para que o motor saiba o que pular
-          rclone copy "gdrive,root_folder_id=${{ env.GDRIVE_FOLDER_ID }}:" output/ -v || echo "Pasta vazia ou erro no rclone"
+          rclone copy gdrive: output/ --drive-root-folder-id ${{ env.GDRIVE_FOLDER_ID }} -v || echo "Pasta vazia"
         shell: bash
 
       - name: Run engine
@@ -39,8 +38,8 @@ jobs:
       - name: Upload to Google Drive
         run: |
           set -euo pipefail
-          # SRE: Sintaxe explícita para garantir o destino no ID da pasta
-          rclone copy output/ "gdrive,root_folder_id=${{ env.GDRIVE_FOLDER_ID }}:" -v --drive-server-side-across-configs
+          # SRE: Upload forçado para dentro do ID da pasta, ignorando a raiz do My Drive
+          rclone copy output/ gdrive: --drive-root-folder-id ${{ env.GDRIVE_FOLDER_ID }} -v --drive-server-side-across-configs
         shell: bash
 
       - name: Send Telegram notification

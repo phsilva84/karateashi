@@ -1,6 +1,7 @@
 import json
 import logging
 import shutil
+from pathlib import Path
 from core.config import DATA_DIR, PROCESSED_DIR, OUTPUT_DIR
 from core.parser import parse_file
 from core.calculator import compute_student_result, analisar_dojo
@@ -24,15 +25,16 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
         if recomendações:
             for rec in recomendações: f.write(f"• {rec}\n")
         else:
-            f.write("Nenhuma falha crítica recorrente detectada.\n")
+            f.write("Nenhuma falha sistêmica detectada acima do threshold.\n")
             
         f.write("\n--- PONTOS POSITIVOS DO DOJO ---\n")
         if elogios:
-            for elo in elogios: f.write(f"✅ {elo}\n")
+            for elo in sorted(elogios): f.write(f"✅ {elo}\n")
         else:
             f.write("Continue trabalhando os fundamentos básicos.\n")
 
 def run():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
@@ -40,9 +42,8 @@ def run():
         suffix = filepath.stem.replace('exame-', '')
         master_file = OUTPUT_DIR / f"relatorio_master_dojo_{suffix}.txt"
         
-        # IDEMPOTÊNCIA: Se o relatório já existe (baixado do Drive), pula
         if master_file.exists():
-            logger.info(f"SKIP: Relatório para {suffix} já existe. Movendo arquivo original.")
+            logger.info(f"SKIP: Relatório {suffix} já existe. Movendo original.")
             shutil.move(str(filepath), str(PROCESSED_DIR / filepath.name))
             continue
             
@@ -53,7 +54,6 @@ def run():
         results = [compute_student_result(name, evs) for name, evs in students_data.items()]
         recs, elos = analisar_dojo(results)
         
-        # Artefatos
         with open(OUTPUT_DIR / f"relatorio_consolidado_{suffix}.json", 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
             
