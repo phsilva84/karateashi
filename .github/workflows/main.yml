@@ -36,7 +36,6 @@ jobs:
       - name: Upload output to Google Drive
         run: |
           set -euo pipefail
-          # Sincroniza todos os arquivos gerados (JSON e TXT dinâmicos)
           rclone copy output/ gdrive: -v
         shell: bash
 
@@ -47,15 +46,18 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -euo pipefail
-          # Localiza o arquivo master gerado (o mais recente da pasta output)
-          MASTER_FILE=$(ls -t output/relatorio_master_dojo_*.txt | head -1)
           
-          if [ -f "$MASTER_FILE" ]; then
-            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
-              -F chat_id="${TG_CHAT_ID}" \
-              -F document="@$MASTER_FILE" \
-              -F caption="Relatório Master do Dojo - Exame Concluído."
-          else
+          # Localiza o arquivo master gerado
+          MASTER_FILE=$(ls -t output/relatorio_master_dojo_*.txt 2>/dev/null | head -1)
+          
+          if [ -z "$MASTER_FILE" ]; then
             echo "Aviso: Nenhum relatório master encontrado para envio."
+            exit 0
           fi
+          
+          # Envia para Telegram
+          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
+            -F chat_id="${TG_CHAT_ID}" \
+            -F document="@$MASTER_FILE" \
+            -F caption="Relatório Master do Dojo - Exame Concluído."
         shell: bash
