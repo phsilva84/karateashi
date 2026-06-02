@@ -1,0 +1,179 @@
+Avaliador 1 Sensei Paulo:
+Faixa Branca:
+Nome do aluno: Adriana
+Kihon: cod:1,2
+Kata: cod:3
+Bunkai: cod:4
+Kumite: cod:10,11
+Observação: Atenção ao controle.
+Nome do aluno: Kenji
+Kihon: cod:
+Kata: cod:
+Bunkai: cod:
+Kumite: cod:
+Observação: Excelente técnica.
+Nome do aluno: Bruno
+Kihon: cod:1,7
+Kata: cod:2
+Bunkai: cod:4
+Kumite: cod:9
+Nome do aluno: Carla
+Kihon: cod:4,8
+Kata: cod:12
+Bunkai: cod:1
+Kumite: cod:6
+Nome do aluno: Diego
+Kihon: cod:5,7
+Kata: cod:1,2
+Bunkai: cod:9
+Kumite: cod:11
+Nome do aluno: Fernanda
+Kihon: cod:3,9
+Kata: cod:4,8
+Bunkai: cod:12
+Kumite: cod:1
+Nome do aluno: Gustavo
+Kihon: cod:11,12
+Kata: cod:6,1
+Bunkai: cod:2
+Kumite: cod:3
+Nome do aluno: Helena
+Kihon: cod:6,1
+Kata: cod:7,2
+Bunkai: cod:4
+Kumite: cod:8
+Nome do aluno: Igor
+Kihon: cod:2,4
+Kata: cod:9,1
+Bunkai: cod:11
+Kumite: cod:12
+Nome do aluno: Julia
+Kihon: cod:8,9
+Kata: cod:1,11
+Bunkai: cod:6
+Kumite: cod:4
+Nome do aluno: Lucas
+Kihon: cod:1,11
+Kata: cod:12,2
+Bunkai: cod:3
+Kumite: cod:7
+
+Avaliador 2 Sensei Ricardo:
+Faixa Branca:
+Nome do aluno: Adriana
+Kihon: cod:1
+Kata: cod:3,2
+Bunkai: cod:4
+Kumite: cod:10
+Observação: Falta controle no golpe final.
+Nome do aluno: Kenji
+Kihon: cod:
+Kata: cod:
+Bunkai: cod:
+Kumite: cod:
+Observação: Impecável.
+Nome do aluno: Bruno
+Kihon: cod:1
+Kata: cod:2,6
+Bunkai: cod:4
+Kumite: cod:9,11
+Nome do aluno: Carla
+Kihon: cod:4
+Kata: cod:12,8
+Bunkai: cod:1,2
+Kumite: cod:6
+Nome do aluno: Diego
+Kihon: cod:5
+Kata: cod:1,2,7
+Bunkai: cod:9
+Kumite: cod:11
+Nome do aluno: Fernanda
+Kihon: cod:3
+Kata: cod:4,8,12
+Bunkai: cod:1
+Kumite: cod:1,9
+Nome do aluno: Gustavo
+Kihon: cod:11
+Kata: cod:6,1,12
+Bunkai: cod:2
+Kumite: cod:3,4
+Nome do aluno: Helena
+Kihon: cod:6
+Kata: cod:7,2,1
+Bunkai: cod:4
+Kumite: cod:8,11
+Nome do aluno: Igor
+Kihon: cod:2
+Kata: cod:9,1,4
+Bunkai: cod:11
+Kumite: cod:12,6
+Nome do aluno: Julia
+Kihon: cod:8
+Kata: cod:1,11,9
+Bunkai: cod:6
+Kumite: cod:4,2
+Nome do aluno: Lucas
+Kihon: cod:1
+Kata: cod:12,2,11
+Bunkai: cod:3
+Kumite: cod:7,6
+
+Avaliador 3 Sensei Maria:
+Faixa Branca:
+Nome do aluno: Adriana
+Kihon: cod:2
+Kata: cod:3
+Bunkai: cod:4,1
+Kumite: cod:10,12
+Observação: Cuidado com o parceiro.
+Nome do aluno: Kenji
+Kihon: cod:
+Kata: cod:
+Bunkai: cod:
+Kumite: cod:
+Observação: Muito bom.
+Nome do aluno: Bruno
+Kihon: cod:7
+Kata: cod:2
+Bunkai: cod:4,3
+Kumite: cod:9
+Nome do aluno: Carla
+Kihon: cod:8
+Kata: cod:12
+Bunkai: cod:1,11
+Kumite: cod:6,4
+Nome do aluno: Diego
+Kihon: cod:7
+Kata: cod:1,2
+Bunkai: cod:9,6
+Kumite: cod:11
+Nome do aluno: Fernanda
+Kihon: cod:9
+Kata: cod:4,8
+Bunkai: cod:12,3
+Kumite: cod:1
+Nome do aluno: Gustavo
+Kihon: cod:12
+Kata: cod:6,1
+Bunkai: cod:2,11
+Kumite: cod:3
+Nome do aluno: Helena
+Kihon: cod:1
+Kata: cod:7,2
+Bunkai: cod:4,9
+Kumite: cod:8
+Nome do aluno: Igor
+Kihon: cod:4
+Kata: cod:9,1
+Bunkai: cod:11,2
+Kumite: cod:12
+Nome do aluno: Julia
+Kihon: cod:9
+Kata: cod:1,11
+Bunkai: cod:6,12
+Kumite: cod:4
+Nome do aluno: Lucas
+Kihon: cod:11
+Kata: cod:12,2
+Bunkai: cod:3,1
+Kumite: cod:7
