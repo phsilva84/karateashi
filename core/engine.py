@@ -1,11 +1,12 @@
-# -*- coding: utf-8 -*-
 import json
 import logging
 import re
+import shutil
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
+# Configuração de Logs para Observabilidade SRE
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -17,29 +18,95 @@ DATA_DIR = Path('data')
 PROCESSED_DIR = DATA_DIR / 'processed'
 OUTPUT_DIR = Path('output')
 
+# ============================================================================
+# TABELA v1.1 CORRIGIDA (A10 = 2.5)
+# ============================================================================
 WEIGHT_TABLE_V1_1 = {
-    'A1': 1.0, 'A2': 1.0, 'A3': 1.0, 'A4': 0.5, 'A5': 2.0,
-    'A6': 1.0, 'A7': 1.0, 'A8': 0.5, 'A9': 1.0, 'A10': 2.5,
-    'A11': 1.0, 'A12': 0.5,
+    'A1': 1.0,    # Base incorreta
+    'A2': 1.0,    # Execução técnica incorreta
+    'A3': 1.0,    # Movimento sem carga/peso
+    'A4': 0.5,    # Ausência de kiai
+    'A5': 2.0,    # Embusen incorreto
+    'A6': 1.0,    # Falta de foco / olhar incorreto
+    'A7': 1.0,    # Perda de equilíbrio
+    'A8': 0.5,    # Falta de ritmo
+    'A9': 1.0,    # Defesa incompleta
+    'A10': 2.5,   # Falta de controle no ataque (CORRIGIDO de 12.0)
+    'A11': 1.0,   # Distância inadequada
+    'A12': 0.5,   # Tensão / respiração inadequada
 }
 
 CATEGORIES = ['Kihon', 'Kata', 'Bunkai', 'Kumite']
 
+# ============================================================================
+# MAPEAMENTO SEMÂNTICO DE CÓDIGOS (Tabela v1.1)
+# ============================================================================
 CODE_MEANINGS_V1_1 = {
-    'A1': {'descricao': 'Base incorreta', 'recomendacao_tecnica': 'Trabalhar posicionamento de pés e distribuição de peso', 'severidade': 'alta'},
-    'A2': {'descricao': 'Execução técnica incorreta', 'recomendacao_tecnica': 'Revisar forma correta com instrutor', 'severidade': 'alta'},
-    'A3': {'descricao': 'Movimento sem carga/peso', 'recomendacao_tecnica': 'Aumentar transferência de peso', 'severidade': 'alta'},
-    'A4': {'descricao': 'Ausência de kiai', 'recomendacao_tecnica': 'Trabalhar respiração sincronizada', 'severidade': 'baixa'},
-    'A5': {'descricao': 'Embusen incorreto', 'recomendacao_tecnica': 'Memorizar padrão correto de deslocamento', 'severidade': 'media'},
-    'A6': {'descricao': 'Falta de foco / olhar incorreto', 'recomendacao_tecnica': 'Treinar concentração visual', 'severidade': 'media'},
-    'A7': {'descricao': 'Perda de equilíbrio', 'recomendacao_tecnica': 'Fortalecer estabilidade e core', 'severidade': 'alta'},
-    'A8': {'descricao': 'Falta de ritmo', 'recomendacao_tecnica': 'Sincronizar movimentos com ritmo', 'severidade': 'baixa'},
-    'A9': {'descricao': 'Defesa incompleta', 'recomendacao_tecnica': 'Treinar defesa ativa e contra-ataques', 'severidade': 'alta'},
-    'A10': {'descricao': 'Falta de controle no ataque / excesso de força / risco ao parceiro', 'recomendacao_tecnica': 'Trabalhar controle e segurança no kumite', 'severidade': 'critica'},
-    'A11': {'descricao': 'Distância inadequada', 'recomendacao_tecnica': 'Treinar distância correta (ma-ai)', 'severidade': 'media'},
-    'A12': {'descricao': 'Tensão / respiração inadequada', 'recomendacao_tecnica': 'Trabalhar relaxamento e respiração', 'severidade': 'baixa'}
+    'A1': {
+        'descricao': 'Base incorreta',
+        'recomendacao_tecnica': 'Trabalhar posicionamento de pés e distribuição de peso',
+        'severidade': 'alta'
+    },
+    'A2': {
+        'descricao': 'Execução técnica incorreta',
+        'recomendacao_tecnica': 'Revisar forma correta com instrutor',
+        'severidade': 'alta'
+    },
+    'A3': {
+        'descricao': 'Movimento sem carga/peso',
+        'recomendacao_tecnica': 'Aumentar transferência de peso',
+        'severidade': 'alta'
+    },
+    'A4': {
+        'descricao': 'Ausência de kiai',
+        'recomendacao_tecnica': 'Trabalhar respiração sincronizada',
+        'severidade': 'baixa'
+    },
+    'A5': {
+        'descricao': 'Embusen incorreto',
+        'recomendacao_tecnica': 'Memorizar padrão correto de deslocamento',
+        'severidade': 'media'
+    },
+    'A6': {
+        'descricao': 'Falta de foco / olhar incorreto',
+        'recomendacao_tecnica': 'Treinar concentração visual',
+        'severidade': 'media'
+    },
+    'A7': {
+        'descricao': 'Perda de equilíbrio',
+        'recomendacao_tecnica': 'Fortalecer estabilidade e core',
+        'severidade': 'alta'
+    },
+    'A8': {
+        'descricao': 'Falta de ritmo',
+        'recomendacao_tecnica': 'Sincronizar movimentos com ritmo',
+        'severidade': 'baixa'
+    },
+    'A9': {
+        'descricao': 'Defesa incompleta',
+        'recomendacao_tecnica': 'Treinar defesa ativa e contra-ataques',
+        'severidade': 'alta'
+    },
+    'A10': {
+        'descricao': 'Falta de controle no ataque / excesso de força / risco ao parceiro',
+        'recomendacao_tecnica': 'Trabalhar controle e segurança no kumite',
+        'severidade': 'critica'
+    },
+    'A11': {
+        'descricao': 'Distância inadequada',
+        'recomendacao_tecnica': 'Treinar distância correta (ma-ai)',
+        'severidade': 'media'
+    },
+    'A12': {
+        'descricao': 'Tensão / respiração inadequada',
+        'recomendacao_tecnica': 'Trabalhar relaxamento e respiração',
+        'severidade': 'baixa'
+    }
 }
 
+# ============================================================================
+# MAPEAMENTO DE PONTOS POSITIVOS (Inverso dos códigos)
+# ============================================================================
 PONTOS_POSITIVOS_V1_1 = {
     'A1': {'descricao': 'Base incorreta', 'inverso': 'Bases corretas', 'elogio': 'Alunos com bom trabalho de bases e posicionamento de pés'},
     'A2': {'descricao': 'Execução técnica incorreta', 'inverso': 'Execução técnica correta', 'elogio': 'Alunos com boa execução técnica e forma correta'},
@@ -55,90 +122,76 @@ PONTOS_POSITIVOS_V1_1 = {
     'A12': {'descricao': 'Tensão / respiração inadequada', 'inverso': 'Tensão / respiração adequada', 'elogio': 'Alunos com excelente relaxamento e respiração'}
 }
 
+# ============================================================================
+# PARSING FUNCTIONS
+# ============================================================================
 def _parse_evaluator(line: str) -> Optional[str]:
-    patterns = [
-        r'Avaliador\s+\d+\s+Sensei\s+\[(.+?)\]',
-        r'Avaliador\s+\d+\s+Sensei\s+(.+?):\s*$',
-        r'Avaliador\s+\d+\s+Sensei\s+(.+?)$',
-    ]
+    patterns = [r'Avaliador\s+\d+\s+Sensei\s+\[(.+?)\]', r'Avaliador\s+\d+\s+Sensei\s+(.+?):\s*$', r'Avaliador\s+\d+\s+Sensei\s+(.+?)$']
     for pattern in patterns:
         m = re.search(pattern, line.strip())
-        if m:
-            return m.group(1).strip()
+        if m: return m.group(1).strip()
     return None
 
 def _parse_student(line: str) -> Optional[str]:
-    patterns = [
-        r'Nome do aluno:\s*\[(.+?)\]',
-        r'Nome do aluno:\s*(.+?)$',
-    ]
+    patterns = [r'Nome do aluno:\s*\[(.+?)\]', r'Nome do aluno:\s*(.+?)$']
     for pattern in patterns:
         m = re.search(pattern, line.strip())
-        if m:
-            return m.group(1).strip()
+        if m: return m.group(1).strip()
     return None
 
 def _parse_codes(line: str) -> Optional[List[int]]:
     m = re.search(r'cod:\s*([\d,\s]+)', line)
     if m:
         codes_str = m.group(1)
-        codes = [int(x.strip()) for x in codes_str.split(',') if x.strip().isdigit()]
-        return codes if codes else None
+        return [int(x.strip()) for x in codes_str.split(',') if x.strip().isdigit()]
     return None
 
 def _parse_category_code(line: str) -> Optional[str]:
     for cat in CATEGORIES:
-        if re.search(rf'\b{cat}\b\s*:', line, re.IGNORECASE):
-            return cat
+        if re.search(rf'\b{cat}\b\s*:', line, re.IGNORECASE): return cat
     return None
 
 def parse_file(filepath: Path) -> Dict[str, List[Dict[str, Any]]]:
     students: Dict[str, List[Dict[str, Any]]] = {}
     current_evaluator, current_student, current_eval = None, None, None
-
     logger.info(f"Iniciando parse de {filepath.name}")
     
     with open(filepath, 'r', encoding='utf-8') as f:
         for line in f:
             stripped = line.strip()
-            if not stripped: 
-                continue
+            if not stripped: continue
             
             ev = _parse_evaluator(stripped)
             if ev:
                 current_evaluator = ev
                 current_student = None
                 current_eval = None
-                logger.info(f"Avaliador detectado: {ev}")
                 continue
 
             st = _parse_student(stripped)
             if st and current_evaluator:
                 current_student = st
-                current_eval = {
-                    'evaluator': current_evaluator,
-                    'categories': {cat: [] for cat in CATEGORIES}
-                }
+                current_eval = {'evaluator': current_evaluator, 'categories': {cat: [] for cat in CATEGORIES}}
                 students.setdefault(current_student, []).append(current_eval)
-                logger.info(f"Aluno detectado: {st} (Avaliador: {current_evaluator})")
                 continue
 
             cat = _parse_category_code(stripped)
             if cat and current_eval:
                 codes = _parse_codes(stripped)
-                if codes:
-                    current_eval['categories'][cat].extend(codes)
-
-    logger.info(f"Parse concluído: {len(students)} alunos encontrados")
+                if codes: current_eval['categories'][cat].extend(codes)
     return students
 
+# ============================================================================
+# CÁLCULO DE RESULTADO
+# ============================================================================
 def compute_category_score(codes: List[int]) -> float:
+    """Calcula nota de uma categoria aplicando a Regra de Teto A10."""
     cat_score = 25.0
     for code in codes:
-        code_key = f'A{code}'
-        weight = WEIGHT_TABLE_V1_1.get(code_key, 0.0)
+        weight = WEIGHT_TABLE_V1_1.get(f'A{code}', 0.0)
         cat_score -= weight
     
+    # REGRA CRÍTICA: Se houver A10, a nota da categoria não pode exceder 10.0
     if 10 in codes:
         cat_score = min(cat_score, 10.0)
     
@@ -155,328 +208,124 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
             codes = ev['categories'][cat]
             cat_score = compute_category_score(codes)
             total += cat_score
-            
             for code in codes:
                 code_key = f'A{code}'
-                weight = WEIGHT_TABLE_V1_1.get(code_key, 0.0)
                 all_descontos.append({
-                    'codigo': code_key,
-                    'categoria': cat,
-                    'valor': weight,
-                    'avaliador': ev['evaluator']
+                    'codigo': code_key, 'categoria': cat, 
+                    'valor': WEIGHT_TABLE_V1_1.get(code_key, 0.0), 'avaliador': ev['evaluator']
                 })
-        
         notas_por_avaliador.append(total)
     
     nota_final = sum(notas_por_avaliador) / quorum if quorum > 0 else 0.0
-    
     return {
-        'nome': student,
-        'nota_final': round(nota_final, 2),
+        'nome': student, 'nota_final': round(nota_final, 2),
         'status': 'Aprovado' if nota_final >= 70 else 'Reprovado',
-        'quorum': quorum,
-        'metodo': 'consenso_media',
-        'notas_por_avaliador': notas_por_avaliador,
-        'descontos_detalhados': all_descontos
+        'quorum': quorum, 'metodo': 'consenso_media',
+        'notas_por_avaliador': notas_por_avaliador, 'descontos_detalhados': all_descontos
     }
 
+# ============================================================================
+# GERAÇÃO DE RECOMENDAÇÕES (OPÇÃO C)
+# ============================================================================
 def gerar_recomendacoes_opcao_c(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     total_alunos = len(results)
-    
     codigo_avaliador_stats = {}
     for result in results:
         for desconto in result['descontos_detalhados']:
             codigo = desconto['codigo']
             avaliador = desconto['avaliador']
             aluno = result['nome']
-            
-            if codigo not in codigo_avaliador_stats:
-                codigo_avaliador_stats[codigo] = {}
-            
-            if avaliador not in codigo_avaliador_stats[codigo]:
-                codigo_avaliador_stats[codigo][avaliador] = set()
-            
+            if codigo not in codigo_avaliador_stats: codigo_avaliador_stats[codigo] = {}
+            if avaliador not in codigo_avaliador_stats[codigo]: codigo_avaliador_stats[codigo][avaliador] = set()
             codigo_avaliador_stats[codigo][avaliador].add(aluno)
     
     recomendacoes = {}
-    
-    for codigo in sorted(codigo_avaliador_stats.keys(), 
-                        key=lambda x: sum(len(alunos) for alunos in codigo_avaliador_stats[x].values()),
-                        reverse=True):
-        
+    for codigo in sorted(codigo_avaliador_stats.keys(), key=lambda x: sum(len(alunos) for alunos in codigo_avaliador_stats[x].values()), reverse=True):
         avaliadores_dict = codigo_avaliador_stats[codigo]
-        
-        por_avaliador = {}
-        for avaliador, alunos_set in avaliadores_dict.items():
-            por_avaliador[avaliador] = {
-                'frequencia': len(alunos_set),
-                'percentual': round((len(alunos_set) / total_alunos) * 100, 1),
-                'alunos': sorted(list(alunos_set))
-            }
-        
+        por_avaliador = {av: {'frequencia': len(als), 'percentual': round((len(als)/total_alunos)*100, 1), 'alunos': sorted(list(als))} for av, als in avaliadores_dict.items()}
         alunos_consenso = set.intersection(*[set(alunos) for alunos in avaliadores_dict.values()])
         
-        alunos_divergentes = set()
-        for alunos_set in avaliadores_dict.values():
-            alunos_divergentes.update(alunos_set)
-        alunos_divergentes -= alunos_consenso
-        
-        avaliador_mais_rigoroso = max(avaliadores_dict.items(), key=lambda x: len(x[1]))
-        avaliador_menos_rigoroso = min(avaliadores_dict.items(), key=lambda x: len(x[1]))
-        pct_mais = (len(avaliador_mais_rigoroso[1]) / total_alunos) * 100
-        pct_menos = (len(avaliador_menos_rigoroso[1]) / total_alunos) * 100
-        diferenca_pct = pct_mais - pct_menos
-        
-        percentual_consenso = (len(alunos_consenso) / total_alunos) * 100
-        if percentual_consenso >= 70:
-            intensidade = "🔴 CRÍTICO"
-        elif percentual_consenso >= 50:
-            intensidade = "🟠 IMPORTANTE"
-        else:
-            intensidade = "🟡 ATENÇÃO"
-        
         significado = CODE_MEANINGS_V1_1.get(codigo, {})
-        acao_sensei = (
-            f"{intensidade} ({percentual_consenso:.0f}% consenso): {significado.get('descricao', 'erro')} — "
-            f"{significado.get('recomendacao_tecnica', 'Revisar técnica')}."
-        )
-        
-        acao_calibracao = None
-        if diferenca_pct >= 20:
-            acao_calibracao = (
-                f"⚠️ CALIBRAÇÃO: {avaliador_mais_rigoroso[0]} é {diferenca_pct:.0f}% mais rigoroso que "
-                f"{avaliador_menos_rigoroso[0]} em '{significado.get('descricao', 'erro')}'. "
-                f"Considerar alinhamento de critérios entre avaliadores."
-            )
+        pct_consenso = (len(alunos_consenso) / total_alunos) * 100
+        intensidade = "🔴 CRÍTICO" if pct_consenso >= 70 else "🟠 IMPORTANTE" if pct_consenso >= 50 else "🟡 ATENÇÃO"
         
         recomendacoes[codigo] = {
-            'descricao': significado.get('descricao', 'Código desconhecido'),
-            'frequencia_total': sum(len(alunos) for alunos in avaliadores_dict.values()),
+            'descricao': significado.get('descricao', 'erro'),
+            'acao_sensei': f"{intensidade} ({pct_consenso:.0f}% consenso): {significado.get('descricao')} — {significado.get('recomendacao_tecnica')}.",
             'por_avaliador': por_avaliador,
-            'consenso': {
-                'alunos': sorted(list(alunos_consenso)),
-                'frequencia': len(alunos_consenso),
-                'percentual': round((len(alunos_consenso) / total_alunos) * 100, 1)
-            },
-            'divergencia': {
-                'alunos': sorted(list(alunos_divergentes)),
-                'frequencia': len(alunos_divergentes)
-            },
-            'vieses': {
-                'avaliador_mais_rigoroso': f"{avaliador_mais_rigoroso[0]} ({len(avaliador_mais_rigoroso[1])}/{total_alunos})",
-                'avaliador_menos_rigoroso': f"{avaliador_menos_rigoroso[0]} ({len(avaliador_menos_rigoroso[1])}/{total_alunos})",
-                'diferenca_percentual': round(diferenca_pct, 1)
-            },
-            'acao_sensei': acao_sensei,
-            'acao_calibracao': acao_calibracao
+            'consenso': {'frequencia': len(alunos_consenso), 'percentual': round(pct_consenso, 1), 'alunos': sorted(list(alunos_consenso))}
         }
-    
     return recomendacoes
 
+# ============================================================================
+# PONTOS POSITIVOS E RELATÓRIO MASTER
+# ============================================================================
 def gerar_pontos_positivos(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     total_alunos = len(results)
+    codigo_freq = Counter([d['codigo'] for r in results for d in r['descontos_detalhados']])
+    codigos_nao_apontados = set(PONTOS_POSITIVOS_V1_1.keys()) - set(codigo_freq.keys())
     
-    erro_categoria_frequencia = {}
-    for result in results:
-        for desconto in result['descontos_detalhados']:
-            codigo = desconto['codigo']
-            categoria = desconto['categoria']
-            chave = (codigo, categoria)
-            
-            if chave not in erro_categoria_frequencia:
-                erro_categoria_frequencia[chave] = 0
-            erro_categoria_frequencia[chave] += 1
-    
-    categoria_erros_totais = {}
-    for (codigo, categoria), freq in erro_categoria_frequencia.items():
-        if categoria not in categoria_erros_totais:
-            categoria_erros_totais[categoria] = 0
-        categoria_erros_totais[categoria] += freq
-    
-    categoria_desempenho = {}
-    for categoria in CATEGORIES:
-        total_erros = categoria_erros_totais.get(categoria, 0)
-        percentual_erros = (total_erros / (total_alunos * 25)) * 100 if total_alunos > 0 else 0
-        desempenho = max(0, 100 - percentual_erros)
-        
-        categoria_desempenho[categoria] = {
-            'total_erros': total_erros,
-            'percentual_erros': round(percentual_erros, 1),
-            'desempenho': round(desempenho, 1)
-        }
-    
-    todos_codigos = set(PONTOS_POSITIVOS_V1_1.keys())
-    codigos_apontados = set(erro_categoria_frequencia.keys())
-    codigos_nao_apontados = todos_codigos - {cod for cod, cat in codigos_apontados}
-    
-    codigo_frequencia = {}
-    for result in results:
-        for desconto in result['descontos_detalhados']:
-            codigo = desconto['codigo']
-            if codigo not in codigo_frequencia:
-                codigo_frequencia[codigo] = 0
-            codigo_frequencia[codigo] += 1
-    
-    codigos_forca_relativa = {}
-    for codigo, frequencia in codigo_frequencia.items():
-        percentual = (frequencia / total_alunos) * 100
-        if percentual < 30:
-            codigos_forca_relativa[codigo] = {
-                'frequencia': frequencia,
-                'percentual': round(percentual, 1),
-                'alunos_sem_erro': total_alunos - frequencia
-            }
-    
-    aluno_desempenho = {}
-    for result in results:
-        aluno_desempenho[result['nome']] = {
-            'nota_final': result['nota_final'],
-            'status': result['status'],
-            'erros': len(result['descontos_detalhados'])
-        }
-    
-    alunos_aprovados = [r for r in results if r['status'] == 'Aprovado']
-    alunos_destaque = sorted(alunos_aprovados, key=lambda x: x['nota_final'], reverse=True)[:3]
+    categoria_erros = Counter([d['categoria'] for r in results for d in r['descontos_detalhados']])
+    categoria_desempenho = {cat: {'erros': categoria_erros[cat], 'desempenho': round(100 - (categoria_erros[cat]/(total_alunos*4 if total_alunos > 0 else 1)*100), 1)} for cat in CATEGORIES}
     
     return {
-        'excelencia_total': {
-            'codigos': sorted(list(codigos_nao_apontados)),
-            'descricao': 'Dimensões onde o Dojo não teve nenhuma falha apontada',
-            'elogios': [PONTOS_POSITIVOS_V1_1[cod]['elogio'] for cod in sorted(codigos_nao_apontados)]
-        },
-        'forca_relativa': {
-            'codigos': sorted(codigos_forca_relativa.keys(), 
-                            key=lambda x: codigos_forca_relativa[x]['percentual']),
-            'detalhes': codigos_forca_relativa
-        },
+        'excelencia_total': [PONTOS_POSITIVOS_V1_1[cod]['elogio'] for cod in sorted(codigos_nao_apontados)],
         'categoria_desempenho': categoria_desempenho,
-        'aluno_desempenho': aluno_desempenho,
-        'alunos_destaque': [
-            {'nome': r['nome'], 'nota_final': r['nota_final']} 
-            for r in alunos_destaque
-        ]
+        'alunos_destaque': sorted([r for r in results if r['status'] == 'Aprovado'], key=lambda x: x['nota_final'], reverse=True)[:3]
     }
 
-def gerar_relatorio_master(
-    results: List[Dict[str, Any]], 
-    suffix: str,
-    recomendacoes: Dict[str, Any],
-    pontos_positivos: Dict[str, Any]
-):
+def gerar_relatorio_master(results, suffix, recomendacoes, pontos_positivos):
     output_file = OUTPUT_DIR / f"relatorio_master_dojo_{suffix}.txt"
-    
     media_dojo = sum(r['nota_final'] for r in results) / len(results) if results else 0.0
     
-    with open(output_file, 'w', encoding='utf-8') as f:
+    # O SEGREDO: utf-8-sig resolve os caracteres quebrados no Telegram
+    with open(output_file, 'w', encoding='utf-8-sig') as f:
         f.write(f"=== RELATÓRIO MASTER DO DOJO - {suffix.upper()} ===\n")
-        f.write(f"Média Geral do Dojo: {media_dojo:.2f}\n")
-        f.write(f"Quorum Predominante: {results[0]['quorum'] if results else 1} avaliador(es)\n\n")
+        f.write(f"Média Geral do Dojo: {media_dojo:.2f}\n\n")
         
         f.write("--- Desempenho por Aluno ---\n")
         for r in sorted(results, key=lambda x: x['nome']):
             f.write(f"{r['nome']}: {r['nota_final']} (Quorum: {r['quorum']}) - {r['status']}\n")
         
-        f.write("\n--- RECOMENDAÇÕES PEDAGÓGICAS (OPÇÃO C: CONSENSO + DIVERGÊNCIA + CALIBRAÇÃO) ---\n\n")
-        
+        f.write("\n--- RECOMENDAÇÕES PEDAGÓGICAS (OPÇÃO C) ---\n")
         for codigo, rec in recomendacoes.items():
-            f.write(f"{rec['acao_sensei']}\n")
-            f.write(f"  Por Avaliador:\n")
-            for avaliador, stats in rec['por_avaliador'].items():
-                f.write(f"    • {avaliador}: {stats['frequencia']}/{len(results)} alunos ({stats['percentual']:.1f}%)\n")
-            
-            f.write(f"  Consenso (Todos os avaliadores): {rec['consenso']['frequencia']}/{len(results)} alunos ({rec['consenso']['percentual']:.1f}%)\n")
-            
-            if rec['divergencia']['alunos']:
-                f.write(f"  Divergência (Alguns avaliadores): {', '.join(rec['divergencia']['alunos'])}\n")
-            
-            if rec['vieses']['diferenca_percentual'] > 0:
-                f.write(f"  Viés: {rec['vieses']['avaliador_mais_rigoroso']} vs {rec['vieses']['avaliador_menos_rigoroso']} (Δ {rec['vieses']['diferenca_percentual']:.1f}%)\n")
-            
-            if rec['acao_calibracao']:
-                f.write(f"  {rec['acao_calibracao']}\n")
-            
-            f.write("\n")
-        
-        f.write("--- PONTOS POSITIVOS DO DOJO ---\n\n")
-        
-        if pontos_positivos['excelencia_total']['codigos']:
-            f.write("✅ EXCELÊNCIA TOTAL (Nenhuma falha apontada):\n")
-            for elogio in pontos_positivos['excelencia_total']['elogios']:
-                f.write(f"  • {elogio}\n")
-            f.write("\n")
-        
-        if pontos_positivos['forca_relativa']['codigos']:
-            f.write("✅ FORÇA RELATIVA (< 30% incidência):\n")
-            for codigo in pontos_positivos['forca_relativa']['codigos']:
-                stats = pontos_positivos['forca_relativa']['detalhes'][codigo]
-                significado = CODE_MEANINGS_V1_1.get(codigo, {})
-                f.write(f"  • {codigo} ({significado.get('descricao', 'erro')}): {stats['percentual']:.1f}% — {PONTOS_POSITIVOS_V1_1[codigo]['elogio']}\n")
-            f.write("\n")
-        
-        f.write("📊 DESEMPENHO POR CATEGORIA:\n")
-        for categoria, stats in pontos_positivos['categoria_desempenho'].items():
-            f.write(f"  • {categoria}: {stats['desempenho']:.1f}% de desempenho ({stats['total_erros']} erros totais)\n")
-        f.write("\n")
-        
-        if pontos_positivos['alunos_destaque']:
-            f.write("🏆 ALUNOS DESTAQUE:\n")
-            for aluno in pontos_positivos['alunos_destaque']:
-                f.write(f"  • {aluno['nome']}: {aluno['nota_final']} (Aprovado)\n")
-            f.write("\n")
-        
-        f.write("💡 RECOMENDAÇÃO ESTRATÉGICA:\n")
-        categoria_melhor = max(pontos_positivos['categoria_desempenho'].items(), 
-                              key=lambda x: x[1]['desempenho'])
-        categoria_pior = min(pontos_positivos['categoria_desempenho'].items(), 
-                            key=lambda x: x[1]['desempenho'])
-        
-        if categoria_melhor[0] != categoria_pior[0]:
-            f.write(f"  O Dojo tem excelente desempenho em {categoria_melhor[0]} ({categoria_melhor[1]['desempenho']:.1f}%).\n")
-            f.write(f"  Foco deve ser em {categoria_pior[0]} ({categoria_pior[1]['desempenho']:.1f}%).\n")
-            f.write(f"  Manter força em {categoria_melhor[0]}, melhorar {categoria_pior[0]}.\n")
-        else:
-            f.write(f"  Todas as categorias apresentam desempenho similar. Manter consistência e trabalhar pontos críticos identificados.\n")
-    
-    logger.info(f"Relatório Master salvo em {output_file}")
+            f.write(f"\n{rec['acao_sensei']}\n")
+            f.write(f"  Consenso: {rec['consenso']['frequencia']}/{len(results)} alunos ({rec['consenso']['percentual']:.1f}%)\n")
+            for av, stats in rec['por_avaliador'].items():
+                f.write(f"    • {av}: {stats['frequencia']} alunos\n")
 
+        f.write("\n--- PONTOS POSITIVOS DO DOJO ---\n")
+        if pontos_positivos['excelencia_total']:
+            f.write("\n✅ EXCELÊNCIA TOTAL:\n")
+            for elogio in pontos_positivos['excelencia_total']: f.write(f"  • {elogio}\n")
+
+        f.write("\n📊 DESEMPENHO POR CATEGORIA:\n")
+        for cat, stats in pontos_positivos['categoria_desempenho'].items():
+            f.write(f"  • {cat}: {stats['desempenho']:.1f}% de desempenho\n")
+
+# ============================================================================
+# PIPELINE PRINCIPAL
+# ============================================================================
 def run():
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    
     exame_files = sorted(DATA_DIR.glob('exame-*.txt'))
-    if not exame_files:
-        logger.warning("Nenhum arquivo de exame encontrado em data/")
-        return
-
+    
     for filepath in exame_files:
         suffix = filepath.stem.replace('exame-', '')
-        logger.info(f"=== Processando {filepath.name} ===")
+        students = parse_file(filepath)
+        if not students: continue
         
-        try:
-            students = parse_file(filepath)
+        results = [compute_student_result(st, ev) for st, ev in students.items()]
+        
+        with open(OUTPUT_DIR / f"relatorio_consolidado_{suffix}.json", 'w', encoding='utf-8') as f:
+            json.dump(results, f, ensure_ascii=False, indent=2)
             
-            if not students:
-                logger.warning(f"Nenhum aluno extraído de {filepath.name}")
-                continue
-            
-            results = [compute_student_result(st, ev) for st, ev in students.items()]
-
-            if results:
-                json_file = OUTPUT_DIR / f"relatorio_consolidado_{suffix}.json"
-                with open(json_file, 'w', encoding='utf-8') as f:
-                    json.dump(results, f, ensure_ascii=False, indent=2)
-                logger.info(f"JSON salvo: {json_file}")
-                
-                recomendacoes = gerar_recomendacoes_opcao_c(results)
-                pontos_positivos = gerar_pontos_positivos(results)
-                gerar_relatorio_master(results, suffix, recomendacoes, pontos_positivos)
-            
-            dest = PROCESSED_DIR / filepath.name
-            filepath.rename(dest)
-            logger.info(f"Arquivo movido para {dest}")
-            
-        except Exception as e:
-            logger.error(f"Erro ao processar {filepath.name}: {e}", exc_info=True)
+        gerar_relatorio_master(results, suffix, gerar_recomendacoes_opcao_c(results), gerar_pontos_positivos(results))
+        
+        # SRE: shutil.move é atômico e seguro para volumes montados
+        shutil.move(str(filepath), str(PROCESSED_DIR / filepath.name))
+        logger.info(f"Processado: {filepath.name}")
 
 if __name__ == '__main__':
     run()

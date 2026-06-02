@@ -1,63 +1,50 @@
-name: CI
+name: CI Karate-Ashi
 on: [push, workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     env:
+      # SRE: Garante ambiente UTF-8 para evitar caracteres quebrados no shell
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
       RCLONE_CONFIG_GDRIVE_TYPE: drive
       RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
-      RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
+      RCLONE_CONFIG_GDRIVE_ROOT_FOLDER_ID: ${{ secrets.GDRIVE_ROOT_ID }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies and rclone
+      - name: Install dependencies
         run: |
-          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y python3-pip rclone
-        shell: bash
-
-      - name: Install Python requirements
-        run: |
-          set -euo pipefail
           pip install -r requirements.txt
-        shell: bash
 
       - name: Run engine
         run: |
-          set -euo pipefail
           mkdir -p output
           python core/engine.py
-        shell: bash
 
-      - name: Upload output to Google Drive
-        run: |
-          set -euo pipefail
-          rclone copy output/ gdrive: -v
-        shell: bash
+      - name: Upload to Google Drive
+        run: rclone copy output/ gdrive: -v
 
-      - name: Send Telegram notification with Master Report
+      - name: Send Telegram notification
         continue-on-error: true
         env:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          set -euo pipefail
+          # SRE: Localiza o arquivo dinamicamente
+          MASTER_FILE=$(ls -t output/relatorio_master_dojo_*.txt | head -1)
           
-          # Localiza o arquivo master gerado
-          MASTER_FILE=$(ls -t output/relatorio_master_dojo_*.txt 2>/dev/null | head -1)
-          
-          if [ -z "$MASTER_FILE" ]; then
-            echo "Aviso: Nenhum relatório master encontrado para envio."
-            exit 0
+          if [ -f "$MASTER_FILE" ]; then
+            # O cabeçalho explicita o envio do documento
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
+              -F chat_id="${TG_CHAT_ID}" \
+              -F document="@$MASTER_FILE" \
+              -F caption="🥋 Relatório Master do Dojo - Exame Concluído."
+          else
+            echo "Aviso: Nenhum relatório master encontrado."
           fi
-          
-          # Envia para Telegram
-          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
-            -F chat_id="${TG_CHAT_ID}" \
-            -F document="@$MASTER_FILE" \
-            -F caption="Relatório Master do Dojo - Exame Concluído."
-        shell: bash
