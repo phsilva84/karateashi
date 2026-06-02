@@ -28,7 +28,9 @@ jobs:
           python core/engine.py
 
       - name: Upload to Google Drive
-        run: rclone copy output/ gdrive: -v
+        run: |
+          # SRE: Sincroniza arquivos gerados
+          rclone copy output/ gdrive: -v
 
       - name: Send Telegram notification
         continue-on-error: true
@@ -36,15 +38,14 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # SRE: Localiza o arquivo dinamicamente
+          # SRE: Localiza o relatório master mais recente de forma dinâmica
           MASTER_FILE=$(ls -t output/relatorio_master_dojo_*.txt | head -1)
           
           if [ -f "$MASTER_FILE" ]; then
-            # O cabeçalho explicita o envio do documento
             curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
               -F chat_id="${TG_CHAT_ID}" \
               -F document="@$MASTER_FILE" \
               -F caption="🥋 Relatório Master do Dojo - Exame Concluído."
           else
-            echo "Aviso: Nenhum relatório master encontrado."
+            echo "Aviso: Nenhum relatório master encontrado para envio."
           fi
