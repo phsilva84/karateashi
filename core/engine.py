@@ -4,7 +4,7 @@ import logging
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,146 +18,41 @@ PROCESSED_DIR = DATA_DIR / 'processed'
 OUTPUT_DIR = Path('output')
 
 WEIGHT_TABLE_V1_1 = {
-    'A1': 1.0,
-    'A2': 1.0,
-    'A3': 1.0,
-    'A4': 0.5,
-    'A5': 2.0,
-    'A6': 1.0,
-    'A7': 1.0,
-    'A8': 0.5,
-    'A9': 1.0,
-    'A10': 2.5,
-    'A11': 1.0,
-    'A12': 0.5,
+    'A1': 1.0, 'A2': 1.0, 'A3': 1.0, 'A4': 0.5, 'A5': 2.0,
+    'A6': 1.0, 'A7': 1.0, 'A8': 0.5, 'A9': 1.0, 'A10': 2.5,
+    'A11': 1.0, 'A12': 0.5,
 }
 
 CATEGORIES = ['Kihon', 'Kata', 'Bunkai', 'Kumite']
 
 CODE_MEANINGS_V1_1 = {
-    'A1': {
-        'descricao': 'Base incorreta',
-        'recomendacao_tecnica': 'Trabalhar posicionamento de pés e distribuição de peso',
-        'severidade': 'alta'
-    },
-    'A2': {
-        'descricao': 'Execução técnica incorreta',
-        'recomendacao_tecnica': 'Revisar forma correta com instrutor',
-        'severidade': 'alta'
-    },
-    'A3': {
-        'descricao': 'Movimento sem carga/peso',
-        'recomendacao_tecnica': 'Aumentar transferência de peso',
-        'severidade': 'alta'
-    },
-    'A4': {
-        'descricao': 'Ausência de kiai',
-        'recomendacao_tecnica': 'Trabalhar respiração sincronizada',
-        'severidade': 'baixa'
-    },
-    'A5': {
-        'descricao': 'Embusen incorreto',
-        'recomendacao_tecnica': 'Memorizar padrão correto de deslocamento',
-        'severidade': 'media'
-    },
-    'A6': {
-        'descricao': 'Falta de foco / olhar incorreto',
-        'recomendacao_tecnica': 'Treinar concentração visual',
-        'severidade': 'media'
-    },
-    'A7': {
-        'descricao': 'Perda de equilíbrio',
-        'recomendacao_tecnica': 'Fortalecer estabilidade e core',
-        'severidade': 'alta'
-    },
-    'A8': {
-        'descricao': 'Falta de ritmo',
-        'recomendacao_tecnica': 'Sincronizar movimentos com ritmo',
-        'severidade': 'baixa'
-    },
-    'A9': {
-        'descricao': 'Defesa incompleta',
-        'recomendacao_tecnica': 'Treinar defesa ativa e contra-ataques',
-        'severidade': 'alta'
-    },
-    'A10': {
-        'descricao': 'Falta de controle no ataque / excesso de força / risco ao parceiro',
-        'recomendacao_tecnica': 'Trabalhar controle e segurança no kumite',
-        'severidade': 'critica'
-    },
-    'A11': {
-        'descricao': 'Distância inadequada',
-        'recomendacao_tecnica': 'Treinar distância correta (ma-ai)',
-        'severidade': 'media'
-    },
-    'A12': {
-        'descricao': 'Tensão / respiração inadequada',
-        'recomendacao_tecnica': 'Trabalhar relaxamento e respiração',
-        'severidade': 'baixa'
-    }
+    'A1': {'descricao': 'Base incorreta', 'recomendacao_tecnica': 'Trabalhar posicionamento de pés e distribuição de peso', 'severidade': 'alta'},
+    'A2': {'descricao': 'Execução técnica incorreta', 'recomendacao_tecnica': 'Revisar forma correta com instrutor', 'severidade': 'alta'},
+    'A3': {'descricao': 'Movimento sem carga/peso', 'recomendacao_tecnica': 'Aumentar transferência de peso', 'severidade': 'alta'},
+    'A4': {'descricao': 'Ausência de kiai', 'recomendacao_tecnica': 'Trabalhar respiração sincronizada', 'severidade': 'baixa'},
+    'A5': {'descricao': 'Embusen incorreto', 'recomendacao_tecnica': 'Memorizar padrão correto de deslocamento', 'severidade': 'media'},
+    'A6': {'descricao': 'Falta de foco / olhar incorreto', 'recomendacao_tecnica': 'Treinar concentração visual', 'severidade': 'media'},
+    'A7': {'descricao': 'Perda de equilíbrio', 'recomendacao_tecnica': 'Fortalecer estabilidade e core', 'severidade': 'alta'},
+    'A8': {'descricao': 'Falta de ritmo', 'recomendacao_tecnica': 'Sincronizar movimentos com ritmo', 'severidade': 'baixa'},
+    'A9': {'descricao': 'Defesa incompleta', 'recomendacao_tecnica': 'Treinar defesa ativa e contra-ataques', 'severidade': 'alta'},
+    'A10': {'descricao': 'Falta de controle no ataque / excesso de força / risco ao parceiro', 'recomendacao_tecnica': 'Trabalhar controle e segurança no kumite', 'severidade': 'critica'},
+    'A11': {'descricao': 'Distância inadequada', 'recomendacao_tecnica': 'Treinar distância correta (ma-ai)', 'severidade': 'media'},
+    'A12': {'descricao': 'Tensão / respiração inadequada', 'recomendacao_tecnica': 'Trabalhar relaxamento e respiração', 'severidade': 'baixa'}
 }
 
 PONTOS_POSITIVOS_V1_1 = {
-    'A1': {
-        'descricao': 'Base incorreta',
-        'inverso': 'Bases corretas',
-        'elogio': 'Alunos com bom trabalho de bases e posicionamento de pés'
-    },
-    'A2': {
-        'descricao': 'Execução técnica incorreta',
-        'inverso': 'Execução técnica correta',
-        'elogio': 'Alunos com boa execução técnica e forma correta'
-    },
-    'A3': {
-        'descricao': 'Movimento sem carga/peso',
-        'inverso': 'Movimento com carga/peso',
-        'elogio': 'Alunos com boa transferência de peso e potência'
-    },
-    'A4': {
-        'descricao': 'Ausência de kiai',
-        'inverso': 'Kiai presente',
-        'elogio': 'Alunos com boa respiração sincronizada e vocalização'
-    },
-    'A5': {
-        'descricao': 'Embusen incorreto',
-        'inverso': 'Embusen correto',
-        'elogio': 'Alunos com excelente memorização e execução de kata'
-    },
-    'A6': {
-        'descricao': 'Falta de foco / olhar incorreto',
-        'inverso': 'Foco e olhar correto',
-        'elogio': 'Alunos com excelente concentração e foco visual'
-    },
-    'A7': {
-        'descricao': 'Perda de equilíbrio',
-        'inverso': 'Equilíbrio mantido',
-        'elogio': 'Alunos com excelente estabilidade e equilíbrio'
-    },
-    'A8': {
-        'descricao': 'Falta de ritmo',
-        'inverso': 'Ritmo correto',
-        'elogio': 'Alunos com excelente sincronização e ritmo'
-    },
-    'A9': {
-        'descricao': 'Defesa incompleta',
-        'inverso': 'Defesa completa',
-        'elogio': 'Alunos com excelente defesa e contra-ataques'
-    },
-    'A10': {
-        'descricao': 'Falta de controle no ataque',
-        'inverso': 'Controle no ataque',
-        'elogio': 'Alunos com excelente controle e segurança no kumite'
-    },
-    'A11': {
-        'descricao': 'Distância inadequada',
-        'inverso': 'Distância adequada',
-        'elogio': 'Alunos com excelente ma-ai (distância correta)'
-    },
-    'A12': {
-        'descricao': 'Tensão / respiração inadequada',
-        'inverso': 'Tensão / respiração adequada',
-        'elogio': 'Alunos com excelente relaxamento e respiração'
-    }
+    'A1': {'descricao': 'Base incorreta', 'inverso': 'Bases corretas', 'elogio': 'Alunos com bom trabalho de bases e posicionamento de pés'},
+    'A2': {'descricao': 'Execução técnica incorreta', 'inverso': 'Execução técnica correta', 'elogio': 'Alunos com boa execução técnica e forma correta'},
+    'A3': {'descricao': 'Movimento sem carga/peso', 'inverso': 'Movimento com carga/peso', 'elogio': 'Alunos com boa transferência de peso e potência'},
+    'A4': {'descricao': 'Ausência de kiai', 'inverso': 'Kiai presente', 'elogio': 'Alunos com boa respiração sincronizada e vocalização'},
+    'A5': {'descricao': 'Embusen incorreto', 'inverso': 'Embusen correto', 'elogio': 'Alunos com excelente memorização e execução de kata'},
+    'A6': {'descricao': 'Falta de foco / olhar incorreto', 'inverso': 'Foco e olhar correto', 'elogio': 'Alunos com excelente concentração e foco visual'},
+    'A7': {'descricao': 'Perda de equilíbrio', 'inverso': 'Equilíbrio mantido', 'elogio': 'Alunos com excelente estabilidade e equilíbrio'},
+    'A8': {'descricao': 'Falta de ritmo', 'inverso': 'Ritmo correto', 'elogio': 'Alunos com excelente sincronização e ritmo'},
+    'A9': {'descricao': 'Defesa incompleta', 'inverso': 'Defesa completa', 'elogio': 'Alunos com excelente defesa e contra-ataques'},
+    'A10': {'descricao': 'Falta de controle no ataque', 'inverso': 'Controle no ataque', 'elogio': 'Alunos com excelente controle e segurança no kumite'},
+    'A11': {'descricao': 'Distância inadequada', 'inverso': 'Distância adequada', 'elogio': 'Alunos com excelente ma-ai (distância correta)'},
+    'A12': {'descricao': 'Tensão / respiração inadequada', 'inverso': 'Tensão / respiração adequada', 'elogio': 'Alunos com excelente relaxamento e respiração'}
 }
 
 def _parse_evaluator(line: str) -> Optional[str]:
@@ -381,6 +276,39 @@ def gerar_recomendacoes_opcao_c(results: List[Dict[str, Any]]) -> Dict[str, Any]
 def gerar_pontos_positivos(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     total_alunos = len(results)
     
+    erro_categoria_frequencia = {}
+    for result in results:
+        for desconto in result['descontos_detalhados']:
+            codigo = desconto['codigo']
+            categoria = desconto['categoria']
+            chave = (codigo, categoria)
+            
+            if chave not in erro_categoria_frequencia:
+                erro_categoria_frequencia[chave] = 0
+            erro_categoria_frequencia[chave] += 1
+    
+    categoria_erros_totais = {}
+    for (codigo, categoria), freq in erro_categoria_frequencia.items():
+        if categoria not in categoria_erros_totais:
+            categoria_erros_totais[categoria] = 0
+        categoria_erros_totais[categoria] += freq
+    
+    categoria_desempenho = {}
+    for categoria in CATEGORIES:
+        total_erros = categoria_erros_totais.get(categoria, 0)
+        percentual_erros = (total_erros / (total_alunos * 25)) * 100 if total_alunos > 0 else 0
+        desempenho = max(0, 100 - percentual_erros)
+        
+        categoria_desempenho[categoria] = {
+            'total_erros': total_erros,
+            'percentual_erros': round(percentual_erros, 1),
+            'desempenho': round(desempenho, 1)
+        }
+    
+    todos_codigos = set(PONTOS_POSITIVOS_V1_1.keys())
+    codigos_apontados = set(erro_categoria_frequencia.keys())
+    codigos_nao_apontados = todos_codigos - {cod for cod, cat in codigos_apontados}
+    
     codigo_frequencia = {}
     for result in results:
         for desconto in result['descontos_detalhados']:
@@ -388,9 +316,6 @@ def gerar_pontos_positivos(results: List[Dict[str, Any]]) -> Dict[str, Any]:
             if codigo not in codigo_frequencia:
                 codigo_frequencia[codigo] = 0
             codigo_frequencia[codigo] += 1
-    
-    todos_codigos = set(PONTOS_POSITIVOS_V1_1.keys())
-    codigos_nao_apontados = todos_codigos - set(codigo_frequencia.keys())
     
     codigos_forca_relativa = {}
     for codigo, frequencia in codigo_frequencia.items():
@@ -401,27 +326,6 @@ def gerar_pontos_positivos(results: List[Dict[str, Any]]) -> Dict[str, Any]:
                 'percentual': round(percentual, 1),
                 'alunos_sem_erro': total_alunos - frequencia
             }
-    
-    alunos_com_erro_por_categoria = {}
-    for result in results:
-        for desconto in result['descontos_detalhados']:
-            categoria = desconto['categoria']
-            aluno = result['nome']
-            if categoria not in alunos_com_erro_por_categoria:
-                alunos_com_erro_por_categoria[categoria] = set()
-            alunos_com_erro_por_categoria[categoria].add(aluno)
-    
-    categoria_desempenho = {}
-    for categoria in CATEGORIES:
-        alunos_afetados = len(alunos_com_erro_por_categoria.get(categoria, set()))
-        percentual_alunos_com_erro = (alunos_afetados / total_alunos) * 100
-        desempenho = 100 - percentual_alunos_com_erro
-        
-        categoria_desempenho[categoria] = {
-            'alunos_com_erro': alunos_afetados,
-            'percentual_alunos_com_erro': round(percentual_alunos_com_erro, 1),
-            'desempenho': round(desempenho, 1)
-        }
     
     aluno_desempenho = {}
     for result in results:
@@ -511,7 +415,7 @@ def gerar_relatorio_master(
         
         f.write("📊 DESEMPENHO POR CATEGORIA:\n")
         for categoria, stats in pontos_positivos['categoria_desempenho'].items():
-            f.write(f"  • {categoria}: {stats['desempenho']:.1f}% de desempenho ({stats['alunos_com_erro']}/{len(results)} alunos com erro)\n")
+            f.write(f"  • {categoria}: {stats['desempenho']:.1f}% de desempenho ({stats['total_erros']} erros totais)\n")
         f.write("\n")
         
         if pontos_positivos['alunos_destaque']:
@@ -525,9 +429,13 @@ def gerar_relatorio_master(
                               key=lambda x: x[1]['desempenho'])
         categoria_pior = min(pontos_positivos['categoria_desempenho'].items(), 
                             key=lambda x: x[1]['desempenho'])
-        f.write(f"  O Dojo tem excelente desempenho em {categoria_melhor[0]} ({categoria_melhor[1]['desempenho']:.1f}%).\n")
-        f.write(f"  Foco deve ser em {categoria_pior[0]} ({categoria_pior[1]['desempenho']:.1f}%).\n")
-        f.write(f"  Manter força em {categoria_melhor[0]}, melhorar {categoria_pior[0]}.\n")
+        
+        if categoria_melhor[0] != categoria_pior[0]:
+            f.write(f"  O Dojo tem excelente desempenho em {categoria_melhor[0]} ({categoria_melhor[1]['desempenho']:.1f}%).\n")
+            f.write(f"  Foco deve ser em {categoria_pior[0]} ({categoria_pior[1]['desempenho']:.1f}%).\n")
+            f.write(f"  Manter força em {categoria_melhor[0]}, melhorar {categoria_pior[0]}.\n")
+        else:
+            f.write(f"  Todas as categorias apresentam desempenho similar. Manter consistência e trabalhar pontos críticos identificados.\n")
     
     logger.info(f"Relatório Master salvo em {output_file}")
 
