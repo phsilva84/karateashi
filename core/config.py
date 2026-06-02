@@ -1,11 +1,11 @@
 from pathlib import Path
 
-# Diretórios
+# Diretórios e Caminhos
 DATA_DIR = Path('data')
 PROCESSED_DIR = DATA_DIR / 'processed'
 OUTPUT_DIR = Path('output')
 
-# Categorias Base
+# Categorias de Avaliação
 CATEGORIES = ['Kihon', 'Kata', 'Bunkai', 'Kumite']
 
 # Tabela de Pesos v1.1 (A10 corrigido para 2.5)
@@ -14,7 +14,7 @@ WEIGHT_TABLE = {
     'A7': 1.0, 'A8': 0.5, 'A9': 1.0, 'A10': 2.5, 'A11': 1.0, 'A12': 0.5,
 }
 
-# Significado dos Códigos
+# Mapeamento Semântico para Relatórios
 CODE_MEANINGS = {
     'A1': {'descricao': 'Base incorreta', 'recomendacao': 'Trabalhar posicionamento de pés e distribuição de peso'},
     'A2': {'descricao': 'Execução técnica incorreta', 'recomendacao': 'Revisar forma correta com instrutor'},
@@ -25,23 +25,23 @@ CODE_MEANINGS = {
     'A7': {'descricao': 'Perda de equilíbrio', 'recomendacao': 'Fortalecer estabilidade e core'},
     'A8': {'descricao': 'Falta de ritmo', 'recomendacao': 'Sincronizar movimentos com ritmo'},
     'A9': {'descricao': 'Defesa incompleta', 'recomendacao': 'Treinar defesa ativa e contra-ataques'},
-    'A10': {'descricao': 'Falta de controle no ataque / excesso de força', 'recomendacao': 'Trabalhar controle e segurança no kumite'},
+    'A10': {'descricao': 'Falta de controle no ataque', 'recomendacao': 'Trabalhar controle e segurança no kumite'},
     'A11': {'descricao': 'Distância inadequada', 'recomendacao': 'Treinar distância correta (ma-ai)'},
     'A12': {'descricao': 'Tensão / respiração inadequada', 'recomendacao': 'Trabalhar relaxamento e respiração'}
 }
 
 # Elogios (Inverso dos códigos)
 PONTOS_POSITIVOS = {
-    'A1': 'Alunos com bom trabalho de bases e posicionamento de pés',
-    'A2': 'Alunos com boa execução técnica e forma correta',
-    'A3': 'Alunos com boa transferência de peso e potência',
-    'A4': 'Alunos com boa respiração sincronizada e vocalização',
-    'A5': 'Alunos com excelente memorização e execução de kata',
-    'A6': 'Alunos com excelente concentração e foco visual',
-    'A7': 'Alunos com excelente estabilidade e equilíbrio',
-    'A8': 'Alunos com excelente sincronização e ritmo',
-    'A9': 'Alunos com excelente defesa e contra-ataques',
-    'A10': 'Alunos com excelente controle e segurança no kumite',
-    'A11': 'Alunos com excelente ma-ai (distância correta)',
-    'A12': 'Alunos com excelente relaxamento e respiração'
+    'A1': 'Bom trabalho de bases e posicionamento de pés',
+    'A2': 'Boa execução técnica e forma correta',
+    'A3': 'Boa transferência de peso e potência',
+    'A4': 'Boa respiração sincronizada e vocalização',
+    'A5': 'Excelente memorização e execução de kata',
+    'A6': 'Excelente concentração e foco visual',
+    'A7': 'Excelente estabilidade e equilíbrio',
+    'A8': 'Excelente sincronização e ritmo',
+    'A9': 'Excelente defesa e contra-ataques',
+    'A10': 'Excelente controle e segurança no kumite',
+    'A11': 'Excelente ma-ai (distância correta)',
+    'A12': 'Excelente relaxamento e respiração'
 }

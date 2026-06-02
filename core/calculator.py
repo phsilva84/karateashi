@@ -12,7 +12,7 @@ def compute_category_score(codes: List[int]) -> float:
     return max(0.0, score)
 
 def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> Dict[str, Any]:
-    notas_finais = []
+    notas_avaliadores = []
     all_descontos = []
     
     for ev in evaluations:
@@ -26,9 +26,9 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
                     'codigo': f'A{c}', 'categoria': cat, 
                     'valor': WEIGHT_TABLE.get(f'A{c}', 0.0), 'avaliador': ev['evaluator']
                 })
-        notas_finais.append(soma_aluno)
+        notas_avaliadores.append(soma_aluno)
     
-    media = sum(notas_finais) / len(notas_finais) if notas_finais else 0.0
+    media = sum(notas_avaliadores) / len(notas_avaliadores) if notas_avaliadores else 0.0
     return {
         'nome': student,
         'nota_final': round(media, 2),

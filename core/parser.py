@@ -7,7 +7,11 @@ from core.config import CATEGORIES
 logger = logging.getLogger(__name__)
 
 def _parse_evaluator(line: str) -> Optional[str]:
-    patterns = [r'Avaliador\s+\d+\s+Sensei\s+\[(.+?)\]', r'Avaliador\s+\d+\s+Sensei\s+(.+?):', r'Avaliador\s+\d+\s+Sensei\s+(.+?)$']
+    patterns = [
+        r'Avaliador\s+\d+\s+Sensei\s+\[(.+?)\]',
+        r'Avaliador\s+\d+\s+Sensei\s+(.+?):',
+        r'Avaliador\s+\d+\s+Sensei\s+(.+?)$'
+    ]
     for p in patterns:
         m = re.search(p, line.strip())
         if m: return m.group(1).strip()
@@ -47,7 +51,6 @@ def parse_file(filepath: Path) -> Dict[str, List[Dict[str, Any]]]:
                 if line.lower().startswith(cat.lower()):
                     codes = _parse_codes(line)
                     if students and codes:
-                        # Pega o último aluno e a última avaliação adicionada
                         last_student = list(students.keys())[-1]
                         students[last_student][-1]['categories'][cat].extend(codes)
     return students

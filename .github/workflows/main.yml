@@ -27,8 +27,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p output
-          # SRE: Adiciona a raiz ao PYTHONPATH para que o pacote 'core' seja reconhecido
-          export PYTHONPATH=$PYTHONPATH:.
+          # SRE: Usamos a sintaxe ${VAR:-} para evitar o erro de 'unbound variable'
+          # Isso garante que o pacote 'core' seja reconhecido mesmo em ambientes limpos
+          export PYTHONPATH=${PYTHONPATH:-}:.
           python core/engine.py
         shell: bash
 
