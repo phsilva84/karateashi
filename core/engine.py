@@ -16,16 +16,23 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
         f.write(f"=== RELATÓRIO MASTER DO DOJO - {suffix.upper()} ===\n")
         f.write(f"Média Geral do Dojo: {media_geral:.2f}\n\n")
         
-        f.write("--- Desempenho por Aluno ---\n")
+        f.write("--- Desempenho por Aluno ---\n\n")
         for r in sorted(results, key=lambda x: x['nome']):
-            f.write(f"{r['nome']}: {r['nota_final']} (Quorum: {r['quorum']}) [Marcações: {r['total_marcacoes']}] - {r['status']}\n")
+            # Linha principal do aluno
+            codigos_str = ", ".join(r['codigos_apontados']) if r['codigos_apontados'] else "Nenhum"
+            f.write(f"🥋 {r['nome']}: {r['nota_final']} (Quorum: {r['quorum']})\n")
+            f.write(f"   Status: {r['status']} | Marcações: {r['total_marcacoes']} [{codigos_str}]\n")
             
+            # Bloco de Observações identado
             if r['observacoes_por_sensei']:
-                f.write("  • Observações:\n")
+                f.write("   • Observações:\n")
                 for sensei, texto in r['observacoes_por_sensei'].items():
-                    f.write(f"    [Sensei {sensei}] - {texto}\n")
+                    f.write(f"     [Sensei {sensei}] - {texto}\n")
+            
+            # Espaço entre alunos para legibilidade
+            f.write("\n")
         
-        f.write("\n--- RECOMENDAÇÕES PEDAGÓGICAS AO SENSEI (CONSENSO) ---\n")
+        f.write("--- RECOMENDAÇÕES PEDAGÓGICAS AO SENSEI (CONSENSO) ---\n")
         if recomendações:
             for rec in recomendações: f.write(f"• {rec}\n")
         else:

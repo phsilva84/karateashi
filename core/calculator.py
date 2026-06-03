@@ -12,21 +12,22 @@ def compute_category_score(codes: List[int]) -> float:
 def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> Dict[str, Any]:
     notas_avaliadores = []
     all_descontos = []
-    obs_dict = {} # Organiza por Sensei
-    total_marcacoes = 0
+    obs_dict = {}
+    codigos_unicos = set()
     
     for ev in evaluations:
         soma_aluno = 0.0
         for cat in CATEGORIES:
             codes = ev['categories'][cat]
-            total_marcacoes += len(codes) # Conta cada código marcado
+            for c in codes:
+                cod_str = f'A{c}'
+                codigos_unicos.add(cod_str)
+                all_descontos.append({
+                    'codigo': cod_str, 'categoria': cat, 
+                    'valor': WEIGHT_TABLE.get(cod_str, 0.0), 'avaliador': ev['evaluator']
+                })
             cat_score = compute_category_score(codes)
             soma_aluno += cat_score
-            for c in codes:
-                all_descontos.append({
-                    'codigo': f'A{c}', 'categoria': cat, 
-                    'valor': WEIGHT_TABLE.get(f'A{c}', 0.0), 'avaliador': ev['evaluator']
-                })
         notas_avaliadores.append(soma_aluno)
         if ev.get('observation'):
             obs_dict[ev['evaluator']] = ev['observation']
@@ -37,7 +38,8 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
         'nota_final': round(media, 2),
         'status': 'Aprovado' if media >= 70 else 'Reprovado',
         'quorum': len(evaluations),
-        'total_marcacoes': total_marcacoes,
+        'codigos_apontados': sorted(list(codigos_unicos)),
+        'total_marcacoes': len(all_descontos),
         'descontos_detalhados': all_descontos,
         'observacoes_por_sensei': obs_dict
     }
@@ -57,8 +59,6 @@ def analisar_dojo(results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
     codigos_com_erro = set()
     for cod in sorted(stats.keys(), key=lambda x: sum(len(s) for s in stats[x].values()), reverse=True):
         av_dict = stats[cod]
-        
-        # Consenso exige 100% dos avaliadores concordando no mesmo aluno
         if len(av_dict) < num_avaliadores:
             consenso = set()
         else:

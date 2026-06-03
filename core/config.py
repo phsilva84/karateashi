@@ -16,81 +16,21 @@ WEIGHT_TABLE = {
 }
 
 # ============================================================================
-# RECOMENDAÇÕES PEDAGÓGICAS v1.3.2 (EQUILÍBRIO DIDÁTICO)
+# RECOMENDAÇÕES PEDAGÓGICAS v1.4 (DIRETRIZES AO SENSEI)
 # ============================================================================
 RECOMENDACOES = {
-    'A1': {
-        'descricao': 'Base Incorreta',
-        'severidade': '🔴 CRÍTICO',
-        'recomendacao': 'Corrigir o posicionamento dos pés e a distribuição de peso nas bases.',
-        'threshold': 0.30
-    },
-    'A2': {
-        'descricao': 'Execução Técnica Incorreta',
-        'severidade': '🟠 IMPORTANTE',
-        'recomendacao': 'Revisar a trajetória dos movimentos e a rotação de quadril e punho.',
-        'threshold': 0.30
-    },
-    'A3': {
-        'descricao': 'Movimento sem Carga/Peso',
-        'severidade': '🟡 ATENÇÃO',
-        'recomendacao': 'Finalizar o golpe com firmeza, contraindo o abdômen para gerar potência.',
-        'threshold': 0.30
-    },
-    'A4': {
-        'descricao': 'Ausência de Kiai',
-        'severidade': '🟢 OBSERVAÇÃO',
-        'recomendacao': 'Sincronizar a saída do ar com o final do golpe para canalizar a energia.',
-        'threshold': 0.30
-    },
-    'A5': {
-        'descricao': 'Embusen Incorreto',
-        'severidade': '🟠 IMPORTANTE',
-        'recomendacao': 'Respeitar o trajeto correto do Kata (Embusen) e retornar ao ponto de início.',
-        'threshold': 0.30
-    },
-    'A6': {
-        'descricao': 'Falta de Foco',
-        'severidade': '🟡 ATENÇÃO',
-        'recomendacao': 'Manter o foco visual e a intenção no alvo durante toda a técnica.',
-        'threshold': 0.30
-    },
-    'A7': {
-        'descricao': 'Perda de Equilíbrio',
-        'severidade': '🔴 CRÍTICO',
-        'recomendacao': 'Flexionar mais os joelhos para ganhar estabilidade e evitar balanços.',
-        'threshold': 0.30
-    },
-    'A8': {
-        'descricao': 'Falta de Ritmo/Cadência',
-        'severidade': '🟡 ATENÇÃO',
-        'recomendacao': 'Ajustar a velocidade dos movimentos, respeitando o tempo correto do Kata.',
-        'threshold': 0.30
-    },
-    'A9': {
-        'descricao': 'Defesa Incompleta',
-        'severidade': '🟠 IMPORTANTE',
-        'recomendacao': 'Garantir que o bloqueio cubra a área de ataque e prepare o contra-ataque.',
-        'threshold': 0.30
-    },
-    'A10': {
-        'descricao': 'Falta de Controle',
-        'severidade': '🔴 CRÍTICO',
-        'recomendacao': 'Controlar a distância e a potência do impacto para garantir a segurança do parceiro.',
-        'threshold': 0.30
-    },
-    'A11': {
-        'descricao': 'Distância Inadequada',
-        'severidade': '🟡 ATENÇÃO',
-        'recomendacao': 'Ajustar o posicionamento para garantir que o golpe alcance o alvo com eficiência.',
-        'threshold': 0.30
-    },
-    'A12': {
-        'descricao': 'Tensão/Respiração Inadequada',
-        'severidade': '🟢 OBSERVAÇÃO',
-        'recomendacao': 'Relaxar os ombros e manter a respiração abdominal fluida e constante.',
-        'threshold': 0.30
-    }
+    'A1': {'descricao': 'Base Incorreta', 'severidade': '🔴 CRÍTICO', 'recomendacao': 'Priorizar exercícios de fixação de base e distribuição de peso nas próximas aulas.', 'threshold': 0.30},
+    'A2': {'descricao': 'Execução Técnica Incorreta', 'severidade': '🟠 IMPORTANTE', 'recomendacao': 'Dedicar tempo para correção coletiva de trajetórias e rotação de quadril e punho.', 'threshold': 0.30},
+    'A3': {'descricao': 'Movimento sem Carga/Peso', 'severidade': '🟡 ATENÇÃO', 'recomendacao': 'Trabalhar a explosão final e a ativação do abdômen em exercícios de grupo.', 'threshold': 0.30},
+    'A4': {'descricao': 'Ausência de Kiai', 'severidade': '🟢 OBSERVAÇÃO', 'recomendacao': 'Cobrar maior intensidade na expiração e no uso do Kiai durante as técnicas.', 'threshold': 0.30},
+    'A5': {'descricao': 'Embusen Incorreto', 'severidade': '🟠 IMPORTANTE', 'recomendacao': 'Revisar o trajeto dos Katas (Embusen) no tatame, focando no ponto de retorno.', 'threshold': 0.30},
+    'A6': {'descricao': 'Falta de Foco', 'severidade': '🟡 ATENÇÃO', 'recomendacao': 'Implementar treinos de atenção visual e manutenção do olhar fixo no alvo.', 'threshold': 0.30},
+    'A7': {'descricao': 'Perda de Equilíbrio', 'severidade': '🔴 CRÍTICO', 'recomendacao': 'Focar em exercícios de fortalecimento de pernas e estabilidade nas transições.', 'threshold': 0.30},
+    'A8': {'descricao': 'Falta de Ritmo/Cadência', 'severidade': '🟡 ATENÇÃO', 'recomendacao': 'Treinar a cadência do Kata, alternando entre velocidade e controle de tempo.', 'threshold': 0.30},
+    'A9': {'descricao': 'Defesa Incompleta', 'severidade': '🟠 IMPORTANTE', 'recomendacao': 'Reforçar a importância da cobertura total da área de ataque e preparo do contra-ataque.', 'threshold': 0.30},
+    'A10': {'descricao': 'Falta de Controle', 'severidade': '🔴 CRÍTICO', 'recomendacao': 'Monitorar rigorosamente a potência dos golpes e a segurança entre os parceiros.', 'threshold': 0.30},
+    'A11': {'descricao': 'Distância Inadequada', 'severidade': '🟡 ATENÇÃO', 'recomendacao': 'Praticar a noção de distância relativa para garantir a eficiência do alcance dos golpes.', 'threshold': 0.30},
+    'A12': {'descricao': 'Rigidez Muscular / Respiração Bloqueada', 'severidade': '🟢 OBSERVAÇÃO', 'recomendacao': 'Introduzir rotinas de soltura de ombros e exercícios de respiração diafragmática.', 'threshold': 0.30}
 }
 
 # Elogios para o Dojo (Força Relativa)
