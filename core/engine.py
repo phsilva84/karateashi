@@ -18,24 +18,21 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
         
         f.write("--- DESEMPENHO POR ALUNO ---\n\n")
         for r in sorted(results, key=lambda x: x['nome']):
-            # Cabeçalho do Aluno
             f.write(f"🥋 {r['nome']}: {r['nota_final']} (Quorum: {r['quorum']})\n")
             f.write(f"   Status: {r['status']} | Marcações Totais: {r['total_marcacoes']}\n")
             
-            # Detalhe dos Códigos (Tradução e Contagem)
             if r['detalhe_codigos']:
                 f.write("   Falhas Detectadas:\n")
                 for cod, qtd in sorted(r['detalhe_codigos'].items()):
                     desc = RECOMENDACOES.get(cod, {}).get('descricao', 'Erro Desconhecido')
                     f.write(f"     [{cod} - {desc}] {qtd}x\n")
             
-            # Bloco de Observações
             if r['observacoes_por_sensei']:
                 f.write("   • Observações:\n")
                 for sensei, texto in r['observacoes_por_sensei'].items():
                     f.write(f"     [Sensei {sensei}] - {texto}\n")
             
-            f.write("\n") # Espaço vertical entre alunos
+            f.write("\n") # Espaçamento vertical entre alunos
         
         f.write("--- RECOMENDAÇÕES PEDAGÓGICAS AO SENSEI (CONSENSO) ---\n")
         if recomendações:
@@ -45,6 +42,7 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
             
         f.write("\n--- DESTAQUES E PONTOS POSITIVOS DO DOJO ---\n")
         if elogios:
+            # Ordena para mostrar Excelência primeiro
             for elo in sorted(elogios, reverse=True): f.write(f"{elo}\n")
         else:
             f.write("Continue trabalhando os fundamentos básicos.\n")

@@ -13,7 +13,7 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
     notas_avaliadores = []
     all_descontos = []
     obs_dict = {}
-    contagem_codigos = {} # Novo: { 'A1': 5, 'A10': 2 }
+    contagem_codigos = {}
     
     for ev in evaluations:
         soma_aluno = 0.0
