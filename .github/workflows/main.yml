@@ -1,57 +1,61 @@
-name: CI Karate-Ashi
-on: [push, workflow_dispatch]
-
+name: Karate-Ashi v1.1.4 CI/CD
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+env:
+  LANG: C.UTF-8
+  LC_ALL: C.UTF-8
+  GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_ROOT_ID }}
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      LANG: C.UTF-8
-      LC_ALL: C.UTF-8
-      RCLONE_CONFIG_GDRIVE_TYPE: drive
-      RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
-      GDRIVE_FOLDER_ID: 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-pip rclone
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Pull existing reports (Idempotency)
+      - name: Install rclone
+        run: curl https://rclone.org/install.sh | sudo bash
+      - name: Configure rclone
         run: |
-          mkdir -p output
-          # SRE: Baixa os relatórios do Drive para que o motor saiba o que pular
-          rclone copy gdrive: output/ --drive-root-folder-id ${{ env.GDRIVE_FOLDER_ID }} -v || echo "Pasta vazia"
+          mkdir -p ~/.config/rclone
+          cat <<EOF > ~/.config/rclone/rclone.conf
+          [gdrive]
+          type = drive
+          scope = drive
+          token = ${{ secrets.GDRIVE_TOKEN }}
+          EOF
+      - name: Pull existing reports
         shell: bash
-
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          rclone copy gdrive: output/ --drive-root-folder-id ${{ env.GDRIVE_FOLDER_ID }}
       - name: Run engine
+        shell: bash
         run: |
           set -euo pipefail
           export PYTHONPATH=${PYTHONPATH:-}:.
-          python core/engine.py
-        shell: bash
-
+          python main.py
       - name: Upload to Google Drive
+        shell: bash
         run: |
           set -euo pipefail
-          # SRE: Upload forçado para dentro do ID da pasta, ignorando a raiz do My Drive
-          rclone copy output/ gdrive: --drive-root-folder-id ${{ env.GDRIVE_FOLDER_ID }} -v --drive-server-side-across-configs
-        shell: bash
-
+          rclone copy output/ gdrive: --drive-root-folder-id ${{ env.GDRIVE_FOLDER_ID }}
       - name: Send Telegram notification
-        continue-on-error: true
-        env:
-          TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        shell: bash
         run: |
-          MASTER_FILE=$(ls -t output/relatorio_master_dojo_*.txt | head -1)
-          if [ -f "$MASTER_FILE" ]; then
-            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
-              -F chat_id="${TG_CHAT_ID}" \
-              -F document="@$MASTER_FILE" \
-              -F caption="🥋 Relatório Master do Dojo - Exame Concluído."
+          set -euo pipefail
+          LATEST_REPORT=$(ls -t output/*.json | head -n 1 || echo "")
+          if [ -f "$LATEST_REPORT" ]; then
+            curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument \
+              -F chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+              -F document=@$LATEST_REPORT \
+              -F caption="Karate-Ashi v1.1.4: Relatório gerado com sucesso."
           fi

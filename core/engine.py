@@ -1,64 +1,54 @@
+import os
 import json
-import logging
 import shutil
-from pathlib import Path
 from core.config import DATA_DIR, PROCESSED_DIR, OUTPUT_DIR
 from core.parser import parse_file
 from core.calculator import compute_student_result, analisar_dojo
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
-logger = logging.getLogger(__name__)
-
-def gerar_relatorio_master(results, suffix, recomendações, elogios):
-    master_file = OUTPUT_DIR / f"relatorio_master_dojo_{suffix}.txt"
-    media_geral = sum(r['nota_final'] for r in results) / len(results) if results else 0.0
-    
-    with open(master_file, 'w', encoding='utf-8-sig') as f:
-        f.write(f"=== RELATÓRIO MASTER DO DOJO - {suffix.upper()} ===\n")
-        f.write(f"Média Geral do Dojo: {media_geral:.2f}\n\n")
-        
-        f.write("--- Desempenho por Aluno ---\n")
-        for r in sorted(results, key=lambda x: x['nome']):
-            f.write(f"{r['nome']}: {r['nota_final']} (Quorum: {r['quorum']}) - {r['status']}\n")
-        
-        f.write("\n--- RECOMENDAÇÕES PEDAGÓGICAS (CONSENSO) ---\n")
-        if recomendações:
-            for rec in recomendações: f.write(f"• {rec}\n")
-        else:
-            f.write("Nenhuma falha sistêmica detectada acima do threshold.\n")
-            
-        f.write("\n--- PONTOS POSITIVOS DO DOJO ---\n")
-        if elogios:
-            for elo in sorted(elogios): f.write(f"✅ {elo}\n")
-        else:
-            f.write("Continue trabalhando os fundamentos básicos.\n")
+def gerar_relatorio_master(results, suffix, recomendacoes, elogios):
+    filename = os.path.join(OUTPUT_DIR, f"relatorio_master_{suffix}.txt")
+    with open(filename, "w", encoding="utf-8-sig") as f:
+        f.write("RELATÓRIO MASTER - KARATE-ASHI V1.1.4\n")
+        f.write("="*40 + "\n\n")
+        for student in results:
+            f.write(f"Aluno: {student['nome']}\n")
+            f.write(f"Observações: {student.get('observacoes', 'Nenhuma')}\n")
+            f.write("-"*20 + "\n")
+        f.write("\nRECOMENDAÇÕES DE CONSENSO:\n")
+        for rec in recomendacoes:
+            f.write(f"- {rec}\n")
+        f.write("\nPONTOS POSITIVOS:\n")
+        for elogio in elogios:
+            f.write(f"- {elogio}\n")
 
 def run():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    for filepath in sorted(DATA_DIR.glob('exame-*.txt')):
-        suffix = filepath.stem.replace('exame-', '')
-        master_file = OUTPUT_DIR / f"relatorio_master_dojo_{suffix}.txt"
+    files = [f for f in os.listdir(DATA_DIR) if f.startswith("exame-") and f.endswith(".txt")]
+    
+    for filename in files:
+        input_path = os.path.join(DATA_DIR, filename)
+        suffix = filename.replace("exame-", "").replace(".txt", "")
+        output_txt = os.path.join(OUTPUT_DIR, f"relatorio_master_{suffix}.txt")
         
-        if master_file.exists():
-            logger.info(f"SKIP: Relatório {suffix} já existe. Movendo original.")
-            shutil.move(str(filepath), str(PROCESSED_DIR / filepath.name))
+        if os.path.exists(output_txt):
+            print(f"Relatório {suffix} já existe. Pulando processamento.")
+            shutil.move(input_path, os.path.join(PROCESSED_DIR, filename))
             continue
             
-        logger.info(f"PROCESSANDO: {filepath.name}")
-        students_data = parse_file(filepath)
-        if not students_data: continue
+        data = parse_file(input_path)
+        results = [compute_student_result(s) for s in data]
+        analise = analisar_dojo(results)
         
-        results = [compute_student_result(name, evs) for name, evs in students_data.items()]
-        recs, elos = analisar_dojo(results)
+        gerar_relatorio_master(results, suffix, analise['recomendacoes'], analise['elogios'])
         
-        with open(OUTPUT_DIR / f"relatorio_consolidado_{suffix}.json", 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
+        json_path = os.path.join(OUTPUT_DIR, f"data_{suffix}.json")
+        with open(json_path, "w", encoding="utf-8") as jf:
+            json.dump(results, jf, indent=4, ensure_ascii=False)
             
-        gerar_relatorio_master(results, suffix, recs, elos)
-        shutil.move(str(filepath), str(PROCESSED_DIR / filepath.name))
+        shutil.move(input_path, os.path.join(PROCESSED_DIR, filename))
+        print(f"Processado com sucesso: {filename}")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run()

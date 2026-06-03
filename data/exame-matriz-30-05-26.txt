@@ -36,7 +36,7 @@ Kihon: cod:1,1,2,2,3,9
 Kata: cod:5,6,1,2
 Bunkai: cod:2,6,1
 Kumite: cod:11,9,6,4
-Observação: Mais foco durante a execução das técnicas(cabelo), Olhar deve acompanhar as técnicas.
+Observação: Mais foco durante a execução das técnicas(cabelo atrapalhando), Olhar deve acompanhar as técnicas.
 
 Avaliador 1 Sensei Paulo:
 Faixa Verde:
