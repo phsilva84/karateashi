@@ -30,6 +30,7 @@ def _parse_codes(line: str) -> List[int]:
 def parse_file(filepath: Path) -> Dict[str, List[Dict[str, Any]]]:
     students = {}
     current_evaluator = None
+    current_student = None
     
     with open(filepath, 'r', encoding='utf-8') as f:
         for line in f:
@@ -39,10 +40,12 @@ def parse_file(filepath: Path) -> Dict[str, List[Dict[str, Any]]]:
             ev = _parse_evaluator(line)
             if ev:
                 current_evaluator = ev
+                current_student = None
                 continue
                 
             st = _parse_student(line)
             if st and current_evaluator:
+                current_student = st
                 eval_obj = {
                     'evaluator': current_evaluator, 
                     'categories': {cat: [] for cat in CATEGORIES},
@@ -52,16 +55,14 @@ def parse_file(filepath: Path) -> Dict[str, List[Dict[str, Any]]]:
                 continue
             
             if line.lower().startswith("observação:"):
-                obs_text = line.split(":", 1)[1].strip()
-                if students:
-                    last_st = list(students.keys())[-1]
-                    students[last_st][-1]['observation'] = obs_text
+                if current_student and current_evaluator:
+                    obs_text = line.split(":", 1)[1].strip()
+                    students[current_student][-1]['observation'] = obs_text
                 continue
 
             for cat in CATEGORIES:
                 if line.lower().startswith(cat.lower()):
                     codes = _parse_codes(line)
-                    if students and codes:
-                        last_st = list(students.keys())[-1]
-                        students[last_st][-1]['categories'][cat].extend(codes)
+                    if current_student and codes:
+                        students[current_student][-1]['categories'][cat].extend(codes)
     return students

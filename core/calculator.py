@@ -1,5 +1,4 @@
 from typing import List, Dict, Any, Tuple
-from collections import Counter
 from core.config import WEIGHT_TABLE, CATEGORIES, RECOMENDACOES, PONTOS_POSITIVOS
 
 def compute_category_score(codes: List[int]) -> float:
