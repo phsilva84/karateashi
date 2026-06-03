@@ -1,7 +1,7 @@
 import json
 import logging
 import shutil
-from core.config import DATA_DIR, PROCESSED_DIR, OUTPUT_DIR
+from core.config import DATA_DIR, PROCESSED_DIR, OUTPUT_DIR, RECOMENDACOES
 from core.parser import parse_file
 from core.calculator import compute_student_result, analisar_dojo
 
@@ -18,15 +18,24 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
         
         f.write("--- DESEMPENHO POR ALUNO ---\n\n")
         for r in sorted(results, key=lambda x: x['nome']):
-            cods = ", ".join(r['codigos_apontados']) if r['codigos_apontados'] else "Nenhum"
+            # Cabeçalho do Aluno
             f.write(f"🥋 {r['nome']}: {r['nota_final']} (Quorum: {r['quorum']})\n")
-            f.write(f"   Status: {r['status']} | Marcações: {r['total_marcacoes']} [{cods}]\n")
+            f.write(f"   Status: {r['status']} | Marcações Totais: {r['total_marcacoes']}\n")
             
+            # Detalhe dos Códigos (Tradução e Contagem)
+            if r['detalhe_codigos']:
+                f.write("   Falhas Detectadas:\n")
+                for cod, qtd in sorted(r['detalhe_codigos'].items()):
+                    desc = RECOMENDACOES.get(cod, {}).get('descricao', 'Erro Desconhecido')
+                    f.write(f"     [{cod} - {desc}] {qtd}x\n")
+            
+            # Bloco de Observações
             if r['observacoes_por_sensei']:
                 f.write("   • Observações:\n")
                 for sensei, texto in r['observacoes_por_sensei'].items():
                     f.write(f"     [Sensei {sensei}] - {texto}\n")
-            f.write("\n") # Espaço entre alunos para legibilidade
+            
+            f.write("\n") # Espaço vertical entre alunos
         
         f.write("--- RECOMENDAÇÕES PEDAGÓGICAS AO SENSEI (CONSENSO) ---\n")
         if recomendações:

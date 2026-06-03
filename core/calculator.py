@@ -13,7 +13,7 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
     notas_avaliadores = []
     all_descontos = []
     obs_dict = {}
-    codigos_unicos = set()
+    contagem_codigos = {} # Novo: { 'A1': 5, 'A10': 2 }
     
     for ev in evaluations:
         soma_aluno = 0.0
@@ -21,7 +21,7 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
             codes = ev['categories'][cat]
             for c in codes:
                 cod_str = f'A{c}'
-                codigos_unicos.add(cod_str)
+                contagem_codigos[cod_str] = contagem_codigos.get(cod_str, 0) + 1
                 all_descontos.append({
                     'codigo': cod_str, 'categoria': cat, 'avaliador': ev['evaluator']
                 })
@@ -36,7 +36,7 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
         'nota_final': round(media, 2),
         'status': 'Aprovado' if media >= 70 else 'Reprovado',
         'quorum': len(evaluations),
-        'codigos_apontados': sorted(list(codigos_unicos)),
+        'detalhe_codigos': contagem_codigos,
         'total_marcacoes': len(all_descontos),
         'descontos_detalhados': all_descontos,
         'observacoes_por_sensei': obs_dict
