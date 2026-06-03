@@ -37,12 +37,14 @@ def parse_file(filepath: Path) -> Dict[str, List[Dict[str, Any]]]:
             line = line.strip()
             if not line: continue
             
+            # Detecta novo avaliador e limpa o aluno atual do contexto
             ev = _parse_evaluator(line)
             if ev:
                 current_evaluator = ev
                 current_student = None
                 continue
                 
+            # Detecta novo aluno
             st = _parse_student(line)
             if st and current_evaluator:
                 current_student = st
@@ -54,12 +56,15 @@ def parse_file(filepath: Path) -> Dict[str, List[Dict[str, Any]]]:
                 students.setdefault(st, []).append(eval_obj)
                 continue
             
+            # Captura observação vinculada ao aluno e avaliador ativos
             if line.lower().startswith("observação:"):
                 if current_student and current_evaluator:
                     obs_text = line.split(":", 1)[1].strip()
+                    # Garante que estamos editando a última avaliação deste aluno
                     students[current_student][-1]['observation'] = obs_text
                 continue
 
+            # Captura códigos técnicos
             for cat in CATEGORIES:
                 if line.lower().startswith(cat.lower()):
                     codes = _parse_codes(line)
