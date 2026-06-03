@@ -1,62 +1,69 @@
+from typing import List, Dict, Any, Tuple
+from collections import Counter
 from core.config import WEIGHT_TABLE, CATEGORIES, RECOMENDACOES, PONTOS_POSITIVOS
 
-def compute_category_score(codes):
-    """Calcula a nota baseada nos códigos de erro."""
+def compute_category_score(codes: List[int]) -> float:
     score = 25.0
     for code in codes:
-        score -= WEIGHT_TABLE.get(code, 0)
-    
-    # Aplica teto de 10.0 se o código 10 estiver presente
+        score -= WEIGHT_TABLE.get(f'A{code}', 0.0)
     if 10 in codes:
         score = min(score, 10.0)
-        
     return max(0.0, score)
 
-def compute_student_result(student, evaluations):
-    """Consolida notas e observações de múltiplos avaliadores."""
-    total_score = 0
-    observations = []
-    discounts = []
+def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> Dict[str, Any]:
+    notas_avaliadores = []
+    all_descontos = []
+    observacoes_consolidadas = []
     
-    for eval_data in evaluations:
-        sensei = eval_data.get('sensei', 'Desconhecido')
-        codes = eval_data.get('codes', [])
-        text = eval_data.get('obs', '')
-        
-        total_score += compute_category_score(codes)
-        observations.append(f"{sensei}: {text}")
-        discounts.extend([WEIGHT_TABLE.get(c, 0) for c in codes])
-
-    avg_score = total_score / len(evaluations) if evaluations else 0
-    quorum = len(evaluations) >= 2
+    for ev in evaluations:
+        soma_aluno = 0.0
+        for cat in CATEGORIES:
+            codes = ev['categories'][cat]
+            cat_score = compute_category_score(codes)
+            soma_aluno += cat_score
+            for c in codes:
+                all_descontos.append({
+                    'codigo': f'A{c}', 'categoria': cat, 
+                    'valor': WEIGHT_TABLE.get(f'A{c}', 0.0), 'avaliador': ev['evaluator']
+                })
+        notas_avaliadores.append(soma_aluno)
+        if ev['observation']:
+            observacoes_consolidadas.append(f"[{ev['evaluator']}]: {ev['observation']}")
     
+    media = sum(notas_avaliadores) / len(notas_avaliadores) if notas_avaliadores else 0.0
     return {
-        "nome": student,
-        "nota_final": round(avg_score, 2),
-        "status": "Aprovado" if avg_score >= 7.0 else "Reprovado",
-        "quorum": quorum,
-        "descontos_detalhados": discounts,
-        "observacoes": "; ".join(observations)
+        'nome': student, 'nota_final': round(media, 2),
+        'status': 'Aprovado' if media >= 70 else 'Reprovado',
+        'quorum': len(evaluations), 'descontos_detalhados': all_descontos,
+        'observacoes': " ; ".join(observacoes_consolidadas)
     }
 
-def analisar_dojo(results):
-    """Realiza análise de consenso e identifica pontos positivos."""
-    total_students = len(results)
-    if total_students == 0: return {}
-
-    error_counts = {}
+def analisar_dojo(results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+    total_alunos = len(results)
+    stats = {}
     for res in results:
-        for code in res.get('descontos_detalhados', []):
-            error_counts[code] = error_counts.get(code, 0) + 1
+        for desc in res['descontos_detalhados']:
+            cod, av, aluno = desc['codigo'], desc['avaliador'], res['nome']
+            stats.setdefault(cod, {}).setdefault(av, set()).add(aluno)
+    
+    recomendações = []
+    codigos_com_erro = set()
+    for cod in sorted(stats.keys(), key=lambda x: sum(len(s) for s in stats[x].values()), reverse=True):
+        av_dict = stats[cod]
+        consenso = set.intersection(*[set(s) for s in av_dict.values()])
+        pct = (len(consenso) / total_alunos) * 100
+        config = RECOMENDACOES.get(cod, {})
+        if pct >= (config.get('threshold', 0.30) * 100):
+            recomendações.append(f"{config.get('severidade')} ({pct:.0f}% consenso): {config.get('descricao')} — {config.get('recomendacao')}")
+        codigos_com_erro.add(cod)
 
-    # Identifica pontos positivos (Força Relativa < 15%)
-    pontos_positivos = []
-    for code, count in error_counts.items():
-        if (count / total_students) < 0.15:
-            pontos_positivos.append(PONTOS_POSITIVOS.get(code, "Desempenho técnico sólido"))
-
-    return {
-        "total_avaliados": total_students,
-        "pontos_positivos": list(set(pontos_positivos)),
-        "recomendacoes_gerais": [RECOMENDACOES.get(c) for c in error_counts if error_counts[c] / total_students > 0.5]
-    }
+    elogios = []
+    for cod, texto in PONTOS_POSITIVOS.items():
+        if cod not in codigos_com_erro:
+            elogios.append(f"EXCELÊNCIA: {texto}")
+        else:
+            alunos_com_erro = set().union(*stats[cod].values())
+            incidencia = (len(alunos_com_erro) / total_alunos) * 100
+            if incidencia < 15:
+                elogios.append(f"FORÇA: {texto} ({100-incidencia:.0f}% de acerto)")
+    return recomendações, elogios
