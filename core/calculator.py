@@ -23,11 +23,9 @@ def compute_student_result(student: str, evaluations: List[Dict[str, Any]]) -> D
                 cod_str = f'A{c}'
                 codigos_unicos.add(cod_str)
                 all_descontos.append({
-                    'codigo': cod_str, 'categoria': cat, 
-                    'valor': WEIGHT_TABLE.get(cod_str, 0.0), 'avaliador': ev['evaluator']
+                    'codigo': cod_str, 'categoria': cat, 'avaliador': ev['evaluator']
                 })
-            cat_score = compute_category_score(codes)
-            soma_aluno += cat_score
+            soma_aluno += compute_category_score(codes)
         notas_avaliadores.append(soma_aluno)
         if ev.get('observation'):
             obs_dict[ev['evaluator']] = ev['observation']
@@ -57,33 +55,29 @@ def analisar_dojo(results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
     
     recomendações = []
     codigos_com_erro = set()
-    for cod in sorted(stats.keys(), key=lambda x: sum(len(s) for s in stats[x].values()), reverse=True):
-        av_dict = stats[cod]
-        if len(av_dict) < num_avaliadores:
-            consenso = set()
-        else:
+    
+    for cod in sorted(RECOMENDACOES.keys()):
+        av_dict = stats.get(cod, {})
+        if len(av_dict) == num_avaliadores:
             consenso = set.intersection(*[set(s) for s in av_dict.values()])
-            
-        qtd_consenso = len(consenso)
-        pct = (qtd_consenso / total_alunos) * 100
-        config = RECOMENDACOES.get(cod, {})
-        
-        if pct >= (config.get('threshold', 0.30) * 100):
-            recomendações.append(
-                f"{config.get('severidade')} ({pct:.0f}% - {qtd_consenso}/{total_alunos} alunos): "
-                f"{config.get('descricao')} — {config.get('recomendacao')}"
-            )
-        codigos_com_erro.add(cod)
+            qtd = len(consenso)
+            pct = (qtd / total_alunos) * 100
+            config = RECOMENDACOES[cod]
+            if pct >= (config.get('threshold', 0.30) * 100):
+                recomendações.append(f"{config['severidade']} ({pct:.0f}% - {qtd}/{total_alunos} alunos): {config['descricao']} — {config['recomendacao']}")
+                codigos_com_erro.add(cod)
 
     elogios = []
     for cod, texto in PONTOS_POSITIVOS.items():
-        if cod not in codigos_com_erro:
-            elogios.append(f"EXCELÊNCIA: {texto} (100% - {total_alunos}/{total_alunos} alunos com acerto)")
-        else:
-            alunos_com_erro = set().union(*stats[cod].values())
-            qtd_acerto = total_alunos - len(alunos_com_erro)
-            incidencia = (len(alunos_com_erro) / total_alunos) * 100
-            if incidencia < 20:
-                elogios.append(f"FORÇA: {texto} ({100-incidencia:.0f}% - {qtd_acerto}/{total_alunos} alunos com acerto)")
-    
+        alunos_com_erro = set().union(*stats.get(cod, {}).values()) if cod in stats else set()
+        qtd_acerto = total_alunos - len(alunos_com_erro)
+        pct_acerto = (qtd_acerto / total_alunos) * 100
+        
+        if pct_acerto == 100:
+            elogios.append(f"⭐ EXCELÊNCIA (100% - {qtd_acerto}/{total_alunos} alunos): {texto}")
+        elif pct_acerto >= 85:
+            elogios.append(f"✅ DESTAQUE ({pct_acerto:.0f}% - {qtd_acerto}/{total_alunos} alunos): {texto}")
+        elif pct_acerto >= 75:
+            elogios.append(f"🔹 FORÇA ({pct_acerto:.0f}% - {qtd_acerto}/{total_alunos} alunos): {texto}")
+            
     return recomendações, elogios

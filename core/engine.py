@@ -16,21 +16,17 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
         f.write(f"=== RELATÓRIO MASTER DO DOJO - {suffix.upper()} ===\n")
         f.write(f"Média Geral do Dojo: {media_geral:.2f}\n\n")
         
-        f.write("--- Desempenho por Aluno ---\n\n")
+        f.write("--- DESEMPENHO POR ALUNO ---\n\n")
         for r in sorted(results, key=lambda x: x['nome']):
-            # Linha principal do aluno
-            codigos_str = ", ".join(r['codigos_apontados']) if r['codigos_apontados'] else "Nenhum"
+            cods = ", ".join(r['codigos_apontados']) if r['codigos_apontados'] else "Nenhum"
             f.write(f"🥋 {r['nome']}: {r['nota_final']} (Quorum: {r['quorum']})\n")
-            f.write(f"   Status: {r['status']} | Marcações: {r['total_marcacoes']} [{codigos_str}]\n")
+            f.write(f"   Status: {r['status']} | Marcações: {r['total_marcacoes']} [{cods}]\n")
             
-            # Bloco de Observações identado
             if r['observacoes_por_sensei']:
                 f.write("   • Observações:\n")
                 for sensei, texto in r['observacoes_por_sensei'].items():
                     f.write(f"     [Sensei {sensei}] - {texto}\n")
-            
-            # Espaço entre alunos para legibilidade
-            f.write("\n")
+            f.write("\n") # Espaço entre alunos para legibilidade
         
         f.write("--- RECOMENDAÇÕES PEDAGÓGICAS AO SENSEI (CONSENSO) ---\n")
         if recomendações:
@@ -38,9 +34,9 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
         else:
             f.write("Nenhuma falha sistêmica detectada acima do threshold.\n")
             
-        f.write("\n--- PONTOS POSITIVOS DO DOJO ---\n")
+        f.write("\n--- DESTAQUES E PONTOS POSITIVOS DO DOJO ---\n")
         if elogios:
-            for elo in sorted(elogios): f.write(f"✅ {elo}\n")
+            for elo in sorted(elogios, reverse=True): f.write(f"{elo}\n")
         else:
             f.write("Continue trabalhando os fundamentos básicos.\n")
 

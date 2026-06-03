@@ -1,23 +1,16 @@
 from pathlib import Path
 
-# ============================================================================
-# DIRETÓRIOS E CONFIGURAÇÕES DE INFRAESTRUTURA
-# ============================================================================
 DATA_DIR = Path('data')
 PROCESSED_DIR = DATA_DIR / 'processed'
 OUTPUT_DIR = Path('output')
 
 CATEGORIES = ['Kihon', 'Kata', 'Bunkai', 'Kumite']
 
-# Tabela de Pesos v1.1 (A10 corrigido para 2.5)
 WEIGHT_TABLE = {
     'A1': 1.0, 'A2': 1.0, 'A3': 1.0, 'A4': 0.5, 'A5': 2.0, 'A6': 1.0,
     'A7': 1.0, 'A8': 0.5, 'A9': 1.0, 'A10': 2.5, 'A11': 1.0, 'A12': 0.5,
 }
 
-# ============================================================================
-# RECOMENDAÇÕES PEDAGÓGICAS v1.4 (DIRETRIZES AO SENSEI)
-# ============================================================================
 RECOMENDACOES = {
     'A1': {'descricao': 'Base Incorreta', 'severidade': '🔴 CRÍTICO', 'recomendacao': 'Priorizar exercícios de fixação de base e distribuição de peso nas próximas aulas.', 'threshold': 0.30},
     'A2': {'descricao': 'Execução Técnica Incorreta', 'severidade': '🟠 IMPORTANTE', 'recomendacao': 'Dedicar tempo para correção coletiva de trajetórias e rotação de quadril e punho.', 'threshold': 0.30},
@@ -33,18 +26,17 @@ RECOMENDACOES = {
     'A12': {'descricao': 'Rigidez Muscular / Respiração Bloqueada', 'severidade': '🟢 OBSERVAÇÃO', 'recomendacao': 'Introduzir rotinas de soltura de ombros e exercícios de respiração diafragmática.', 'threshold': 0.30}
 }
 
-# Elogios para o Dojo (Força Relativa)
 PONTOS_POSITIVOS = {
-    'A1': 'Domínio técnico das bases e posicionamento',
-    'A2': 'Precisão na trajetória técnica e rotação',
-    'A3': 'Excelente aplicação de firmeza e potência muscular',
-    'A4': 'Kiai expressivo e respiração sincronizada',
-    'A5': 'Perfeita execução do Embusen (trajeto do Kata)',
-    'A6': 'Foco visual e intenção impecáveis',
-    'A7': 'Estabilidade e controle de centro de gravidade',
-    'A8': 'Ritmo e cadência de execução harmoniosos',
-    'A9': 'Bloqueios eficientes com cobertura total',
-    'A10': 'Excelente controle de impacto e segurança',
-    'A11': 'Noção de distância muito bem aplicada',
-    'A12': 'Fluidez respiratória e relaxamento muscular'
+    'A1': 'Excelente domínio das bases e estabilidade postural',
+    'A2': 'Alta precisão técnica e fluidez nos movimentos',
+    'A3': 'Forte aplicação de potência e contração muscular',
+    'A4': 'Kiai vigoroso e sincronia respiratória exemplar',
+    'A5': 'Perfeita orientação espacial e respeito ao Embusen',
+    'A6': 'Foco visual e concentração inabaláveis durante a execução',
+    'A7': 'Equilíbrio sólido e controle total do centro de gravidade',
+    'A8': 'Ritmo cadenciado e excelente controle de tempo/pausa',
+    'A9': 'Defesas eficientes com cobertura total da área de ataque',
+    'A10': 'Controle de impacto exemplar, garantindo a segurança mútua',
+    'A11': 'Noção de distância e alcance muito bem aplicados no Kumite',
+    'A12': 'Movimentação relaxada com respiração abdominal fluida'
 }
