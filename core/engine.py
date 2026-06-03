@@ -18,15 +18,18 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
         
         f.write("--- DESEMPENHO POR ALUNO ---\n\n")
         for r in sorted(results, key=lambda x: x['nome']):
+            # Cabeçalho do Aluno
             f.write(f"🥋 {r['nome']}: {r['nota_final']} (Quorum: {r['quorum']})\n")
             f.write(f"   Status: {r['status']} | Marcações Totais: {r['total_marcacoes']}\n")
             
+            # Detalhe dos Códigos
             if r['detalhe_codigos']:
                 f.write("   Falhas Detectadas:\n")
                 for cod, qtd in sorted(r['detalhe_codigos'].items()):
                     desc = RECOMENDACOES.get(cod, {}).get('descricao', 'Erro Desconhecido')
                     f.write(f"     [{cod} - {desc}] {qtd}x\n")
             
+            # Bloco de Observações identado
             if r['observacoes_por_sensei']:
                 f.write("   • Observações:\n")
                 for sensei, texto in r['observacoes_por_sensei'].items():
@@ -34,16 +37,15 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
             
             f.write("\n") # Espaçamento vertical entre alunos
         
-        f.write("--- RECOMENDAÇÕES PEDAGÓGICAS AO SENSEI (CONSENSO) ---\n")
+        f.write("--- RECOMENDAÇÕES PEDAGÓGICAS AO SENSEI (CONSENSO) ---\n\n")
         if recomendações:
             for rec in recomendações: f.write(f"• {rec}\n")
         else:
             f.write("Nenhuma falha sistêmica detectada acima do threshold.\n")
             
-        f.write("\n--- DESTAQUES E PONTOS POSITIVOS DO DOJO ---\n")
+        f.write("\n--- DESTAQUES E PONTOS POSITIVOS DO DOJO ---\n\n")
         if elogios:
-            # Ordena para mostrar Excelência primeiro
-            for elo in sorted(elogios, reverse=True): f.write(f"{elo}\n")
+            for elo in sorted(elogios, reverse=True): f.write(f"✅ {elo}\n")
         else:
             f.write("Continue trabalhando os fundamentos básicos.\n")
 

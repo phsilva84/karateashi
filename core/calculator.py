@@ -74,10 +74,10 @@ def analisar_dojo(results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
         pct_acerto = (qtd_acerto / total_alunos) * 100
         
         if pct_acerto == 100:
-            elogios.append(f"⭐ EXCELÊNCIA (100% - {qtd_acerto}/{total_alunos} alunos): {texto}")
+            elogios.append(f"EXCELÊNCIA (100% - {qtd_acerto}/{total_alunos} alunos): {texto}")
         elif pct_acerto >= 85:
-            elogios.append(f"✅ DESTAQUE ({pct_acerto:.0f}% - {qtd_acerto}/{total_alunos} alunos): {texto}")
+            elogios.append(f"DESTAQUE ({pct_acerto:.0f}% - {qtd_acerto}/{total_alunos} alunos): {texto}")
         elif pct_acerto >= 75:
-            elogios.append(f"🔹 FORÇA ({pct_acerto:.0f}% - {qtd_acerto}/{total_alunos} alunos): {texto}")
+            elogios.append(f"FORÇA ({pct_acerto:.0f}% - {qtd_acerto}/{total_alunos} alunos): {texto}")
             
     return recomendações, elogios
