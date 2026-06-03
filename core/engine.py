@@ -21,7 +21,7 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
         f.write("\n--- RECOMENDAÇÕES PEDAGÓGICAS (CONSENSO) ---\n")
         if recomendações:
             for rec in recomendações: f.write(f"• {rec}\n")
-        else: f.write("Nenhuma falha sistêmica detectada.\n")
+        else: f.write("Nenhuma falha sistêmica detectada acima do threshold.\n")
         f.write("\n--- PONTOS POSITIVOS DO DOJO ---\n")
         if elogios:
             for elo in sorted(elogios): f.write(f"✅ {elo}\n")
@@ -32,17 +32,19 @@ def run():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     for filepath in sorted(DATA_DIR.glob('exame-*.txt')):
         suffix = filepath.stem.replace('exame-', '')
-        if (OUTPUT_DIR / f"relatorio_master_dojo_{suffix}.txt").exists():
-            shutil.move(str(filepath), str(PROCESSED_DIR / filepath.name))
-            continue
+        
         logger.info(f"PROCESSANDO: {filepath.name}")
         data = parse_file(filepath)
         if not data: continue
+        
         results = [compute_student_result(n, evs) for n, evs in data.items()]
         recs, elos = analisar_dojo(results)
+        
         with open(OUTPUT_DIR / f"relatorio_consolidado_{suffix}.json", 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
+            
         gerar_relatorio_master(results, suffix, recs, elos)
+        # Move para processados apenas após gerar tudo com sucesso
         shutil.move(str(filepath), str(PROCESSED_DIR / filepath.name))
 
 if __name__ == '__main__':
