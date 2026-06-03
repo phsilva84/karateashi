@@ -13,14 +13,14 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
     media_geral = sum(r['nota_final'] for r in results) / len(results) if results else 0.0
     
     with open(master_file, 'w', encoding='utf-8-sig') as f:
-        f.write(f"=== RELATÓRIO MASTER DO DOJO - {suffix.upper()} ===\n")
-        f.write(f"Média Geral do Dojo: {media_geral:.2f}\n\n")
+        f.write(f"=== RELATORIO MASTER DO DOJO - {suffix.upper()} ===\n")
+        f.write(f"Media Geral do Dojo: {media_geral:.2f}\n\n")
         
         f.write("--- DESEMPENHO POR ALUNO ---\n\n")
         for r in sorted(results, key=lambda x: x['nome']):
-            # Cabeçalho do Aluno
-            f.write(f"🥋 {r['nome']}: {r['nota_final']} (Quorum: {r['quorum']})\n")
-            f.write(f"   Status: {r['status']} | Marcações Totais: {r['total_marcacoes']}\n")
+            # Linha Principal: Aluno, Nota e Meta
+            f.write(f"ALUNO: {r['nome']} | NOTA: {r['nota_final']} (Quorum: {r['quorum']}) [Meta: {r['meta']}]\n")
+            f.write(f"   Status: {r['status']} | Marcacoes Totais: {r['total_marcacoes']}\n")
             
             # Detalhe dos Códigos
             if r['detalhe_codigos']:
@@ -29,25 +29,25 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
                     desc = RECOMENDACOES.get(cod, {}).get('descricao', 'Erro Desconhecido')
                     f.write(f"     [{cod} - {desc}] {qtd}x\n")
             
-            # Bloco de Observações identado
+            # Observações
             if r['observacoes_por_sensei']:
-                f.write("   • Observações:\n")
+                f.write("   Observacoes:\n")
                 for sensei, texto in r['observacoes_por_sensei'].items():
                     f.write(f"     [Sensei {sensei}] - {texto}\n")
             
-            f.write("\n") # Espaçamento vertical entre alunos
+            f.write("\n\n") # Espaço duplo entre alunos
         
-        f.write("--- RECOMENDAÇÕES PEDAGÓGICAS AO SENSEI (CONSENSO) ---\n\n")
+        f.write("--- RECOMENDACOES PEDAGOGICAS AO SENSEI (CONSENSO) ---\n\n")
         if recomendações:
-            for rec in recomendações: f.write(f"• {rec}\n")
+            for rec in recomendações: f.write(f"* {rec}\n")
         else:
-            f.write("Nenhuma falha sistêmica detectada acima do threshold.\n")
+            f.write("Nenhuma falha sistemica detectada acima do threshold.\n")
             
         f.write("\n--- DESTAQUES E PONTOS POSITIVOS DO DOJO ---\n\n")
         if elogios:
-            for elo in sorted(elogios, reverse=True): f.write(f"✅ {elo}\n")
+            for elo in sorted(elogios, reverse=True): f.write(f"* {elo}\n")
         else:
-            f.write("Continue trabalhando os fundamentos básicos.\n")
+            f.write("Continue trabalhando os fundamentos basicos.\n")
 
 def run():
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)

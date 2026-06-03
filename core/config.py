@@ -1,13 +1,13 @@
 from pathlib import Path
 
-# ============================================================================
-# DIRETÓRIOS E CONFIGURAÇÕES DE INFRAESTRUTURA
-# ============================================================================
+# DIRETÓRIOS
 DATA_DIR = Path('data')
 PROCESSED_DIR = DATA_DIR / 'processed'
 OUTPUT_DIR = Path('output')
 
+# CONFIGURAÇÕES DE EXAME
 CATEGORIES = ['Kihon', 'Kata', 'Bunkai', 'Kumite']
+APPROVAL_THRESHOLD = 70.0  # Meta para aprovação
 
 # Tabela de Pesos v1.1
 WEIGHT_TABLE = {
@@ -15,9 +15,7 @@ WEIGHT_TABLE = {
     'A7': 1.0, 'A8': 0.5, 'A9': 1.0, 'A10': 2.5, 'A11': 1.0, 'A12': 0.5,
 }
 
-# ============================================================================
-# RECOMENDAÇÕES PEDAGÓGICAS v1.5 (SEM ÍCONES - TEXTO PURO)
-# ============================================================================
+# RECOMENDAÇÕES AO SENSEI v1.5 (TEXTO PURO)
 RECOMENDACOES = {
     'A1': {'descricao': 'Base Incorreta', 'severidade': 'CRÍTICO', 'recomendacao': 'Priorizar exercícios de fixação de base e distribuição de peso nas próximas aulas.', 'threshold': 0.30},
     'A2': {'descricao': 'Execução Técnica Incorreta', 'severidade': 'IMPORTANTE', 'recomendacao': 'Dedicar tempo para correção coletiva de trajetórias e rotação de quadril e punho.', 'threshold': 0.30},
@@ -33,6 +31,7 @@ RECOMENDACOES = {
     'A12': {'descricao': 'Rigidez Muscular / Respiração Bloqueada', 'severidade': 'OBSERVAÇÃO', 'recomendacao': 'Introduzir rotinas de soltura de ombros e exercícios de respiração diafragmática.', 'threshold': 0.30}
 }
 
+# DESTAQUES POSITIVOS v1.5
 PONTOS_POSITIVOS = {
     'A1': 'Excelente domínio das bases e estabilidade postural',
     'A2': 'Alta precisão técnica e fluidez nos movimentos',
