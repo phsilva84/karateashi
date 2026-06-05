@@ -1,4 +1,4 @@
-name: Karate-Ashi v1.1.8 CI/CD
+name: Karate-Ashi v1.2.1 CI/CD
 
 on:
   push:
@@ -30,14 +30,12 @@ jobs:
             [gdrive]
             type = drive
             token = ${{ secrets.GDRIVE_TOKEN }}
-            # SRE Fix: Injetando o ID da pasta diretamente na config do remote
             root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
           disable_base64: true
 
-      - name: Sync FROM Google Drive (Targeted)
+      - name: Sync FROM Google Drive (Idempotência)
         run: |
           mkdir -p output/
-          # Agora o 'gdrive:' ja aponta diretamente para a pasta correta
           rclone copy gdrive: output/ -v
 
       - name: Run Engine
@@ -46,19 +44,27 @@ jobs:
           mkdir -p data/processed/
           python core/engine.py
 
-      - name: Sync TO Google Drive (Targeted)
+      - name: Sync TO Google Drive
         run: |
           rclone copy output/ gdrive: -v
 
-      - name: Telegram Notification (All Reports)
+      - name: Telegram Notification (Smart Manifesto)
         env:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          # Loop para garantir que todos os relatórios gerados sejam enviados
-          for file in output/relatorio_master_dojo_*.txt; do
-            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
-              -F chat_id="${TG_CHAT_ID}" \
-              -F document="@$file" \
-              -F caption="🥋 Relatório Master: $(basename $file)"
-          done
+          # SRE: Só inicia o loop se o manifesto de novos arquivos existir
+          if [ -f "output/.files_to_send" ]; then
+            echo "Novas modificações detectadas. Iniciando envio..."
+            while IFS= read -r file; do
+              if [ -f "$file" ]; then
+                echo "Enviando: $file"
+                curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
+                  -F chat_id="${TG_CHAT_ID}" \
+                  -F document="@$file" \
+                  -F caption="🥋 Relatório Master Atualizado: $(basename $file)"
+              fi
+            done < "output/.files_to_send"
+          else
+            echo "Nenhuma alteração real nos dados. Telegram em silêncio operacional."
+          fi
