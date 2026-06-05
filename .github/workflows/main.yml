@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Se seus segredos estiverem dentro de um "Environment" no GitHub, 
+    # descomente a linha abaixo e coloque o nome correto:
+    # environment: production 
 
     steps:
       - name: Checkout code
@@ -30,8 +33,13 @@ jobs:
             [gdrive]
             type = drive
             token = ${{ secrets.RCLONE_CONFIG_GDRIVE_TOKEN }}
-          # SRE Fix: Garante que o texto puro do config seja aceito
           disable_base64: true
+
+      - name: Verify Secrets (Safe Check)
+        run: |
+          if [ -z "${{ secrets.RCLONE_CONFIG_GDRIVE_TOKEN }}" ]; then echo "ERRO: RCLONE_CONFIG_GDRIVE_TOKEN esta vazio"; exit 1; fi
+          if [ -z "${{ secrets.GDRIVE_FOLDER_ID }}" ]; then echo "ERRO: GDRIVE_FOLDER_ID esta vazio"; exit 1; fi
+          echo "Segredos injetados com sucesso."
 
       - name: Sync FROM Google Drive
         run: |
@@ -57,4 +65,4 @@ jobs:
           curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
             -F chat_id="${TG_CHAT_ID}" \
             -F document="@$MASTER_FILE" \
-            -F caption="🥋 Relatório Master do Dojo Processado."
+            -F caption="🥋 Relatorio Master do Dojo Processado."
