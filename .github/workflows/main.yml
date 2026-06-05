@@ -1,4 +1,4 @@
-name: Karate-Ashi v1.1.9 CI/CD
+name: Karate-Ashi v1.1.8 CI/CD
 
 on:
   push:
@@ -30,10 +30,8 @@ jobs:
             [gdrive]
             type = drive
             token = ${{ secrets.RCLONE_CONFIG_GDRIVE_TOKEN }}
-          # SRE Fix: Desabilita a tentativa de decodificar o config como base64
-          disable_base64: true
 
-      - name: Sync FROM Google Drive (Idempotência)
+      - name: Sync FROM Google Drive
         run: |
           mkdir -p output/
           rclone copy gdrive: output/ --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" -v
@@ -48,9 +46,7 @@ jobs:
         run: |
           rclone copy output/ gdrive: --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" -v
 
-      - name: Telegram Notification (Conditional)
-        # SRE: Só executa se o engine.py criou o arquivo .new_processed
-        if: hashFiles('output/.new_processed') != ''
+      - name: Telegram Notification
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
@@ -59,4 +55,4 @@ jobs:
           curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
             -F chat_id="${TG_CHAT_ID}" \
             -F document="@$MASTER_FILE" \
-            -F caption="🥋 Relatório Master do Dojo - Novo Exame Processado."
+            -F caption="🥋 Relatório Master do Dojo Processado."
