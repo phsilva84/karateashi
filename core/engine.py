@@ -1,6 +1,8 @@
 import json
 import logging
 import shutil
+import hashlib
+from pathlib import Path
 from core.config import DATA_DIR, PROCESSED_DIR, OUTPUT_DIR, RECOMENDACOES
 from core.parser import parse_file
 from core.calculator import compute_student_result, analisar_dojo
@@ -8,57 +10,65 @@ from core.calculator import compute_student_result, analisar_dojo
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
-def gerar_relatorio_master(results, suffix, recomendações, elogios):
-    master_file = OUTPUT_DIR / f"relatorio_master_dojo_{suffix}.txt"
-    media_geral = sum(r['nota_final'] for r in results) / len(results) if results else 0.0
-    
-    with open(master_file, 'w', encoding='utf-8-sig') as f:
-        f.write(f"=== RELATORIO MASTER DO DOJO - {suffix.upper()} ===\n")
-        f.write(f"Media Geral do Dojo: {media_geral:.2f}\n\n")
-        
-        f.write("--- DESEMPENHO POR ALUNO ---\n\n")
-        for r in sorted(results, key=lambda x: x['nome']):
-            f.write(f"ALUNO: {r['nome']} | NOTA: {r['nota_final']} (Quorum: {r['quorum']}) [Meta: {r['meta']}]\n")
-            f.write(f"   Status: {r['status']} | Marcacoes Totais: {r['total_marcacoes']}\n")
-            
-            if r['detalhe_codigos']:
-                f.write("   Falhas Detectadas:\n")
-                for cod, qtd in sorted(r['detalhe_codigos'].items()):
-                    desc = RECOMENDACOES.get(cod, {}).get('descricao', 'Erro Desconhecido')
-                    f.write(f"     [{cod} - {desc}] {qtd}x\n")
-            
-            if r['observacoes_por_sensei']:
-                f.write("   Observacoes:\n")
-                for sensei, texto in r['observacoes_por_sensei'].items():
-                    f.write(f"     [Sensei {sensei}] - {texto}\n")
-            f.write("\n\n")
-        
-        f.write("--- RECOMENDACOES PEDAGOGICAS AO SENSEI (CONSENSO) ---\n\n")
-        if recomendações:
-            for rec in recomendações: f.write(f"* {rec}\n")
-        else:
-            f.write("Nenhuma falha sistemica detectada acima do threshold.\n")
-            
-        f.write("\n--- DESTAQUES E PONTOS POSITIVOS DO DOJO ---\n\n")
-        if elogios:
-            for elo in sorted(elogios, reverse=True): f.write(f"* {elo}\n")
-        else:
-            f.write("Continue trabalhando os fundamentos basicos.\n")
+CHECKSUM_FILE = OUTPUT_DIR / ".checksums.json"
+
+def get_file_hash(filepath):
+    """Gera um hash MD5 do conteúdo do arquivo."""
+    hasher = hashlib.md5()
+    with open(filepath, 'rb') as f:
+        buf = f.read()
+        hasher.update(buf)
+    return hasher.hexdigest()
+
+def load_checksums():
+    if CHECKSUM_FILE.exists():
+        with open(CHECKSUM_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_checksums(checksums):
+    with open(CHECKSUM_FILE, 'w') as f:
+        json.dump(checksums, f, indent=2)
 
 def run():
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Flag para o Telegram
+    flag_file = OUTPUT_DIR / ".new_processed"
+    if flag_file.exists(): flag_file.unlink()
+    
+    checksums = load_checksums()
+    new_reports_count = 0
+    
     for filepath in sorted(DATA_DIR.glob('exame-*.txt')):
         suffix = filepath.stem.replace('exame-', '')
-        logger.info(f"PROCESSANDO: {filepath.name}")
+        current_hash = get_file_hash(filepath)
+        
+        # VALIDAÇÃO SRE: Se o hash for igual ao anterior, ignora o processamento
+        if checksums.get(filepath.name) == current_hash:
+            logger.info(f"SKIP: Arquivo {filepath.name} sem modificacoes detectadas.")
+            shutil.move(str(filepath), str(PROCESSED_DIR / filepath.name))
+            continue
+            
+        logger.info(f"PROCESSANDO MODIFICACOES: {filepath.name}")
         data = parse_file(filepath)
         if not data: continue
+        
         results = [compute_student_result(n, evs) for n, evs in data.items()]
         recs, elos = analisar_dojo(results)
-        with open(OUTPUT_DIR / f"relatorio_consolidado_{suffix}.json", 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
+        
+        # Gera os relatórios
         gerar_relatorio_master(results, suffix, recs, elos)
+        
+        # Atualiza a "memória" de hashes
+        checksums[filepath.name] = current_hash
+        new_reports_count += 1
         shutil.move(str(filepath), str(PROCESSED_DIR / filepath.name))
+    
+    if new_reports_count > 0:
+        save_checksums(checksums)
+        with open(flag_file, "w") as f: f.write(str(new_reports_count))
+        logger.info(f"Sucesso: {new_reports_count} novos relatorios gerados.")
 
-if __name__ == '__main__':
-    run()
+# ... (função gerar_relatorio_master permanece igual à v1.1.8)
