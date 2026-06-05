@@ -30,12 +30,15 @@ jobs:
             [gdrive]
             type = drive
             token = ${{ secrets.GDRIVE_TOKEN }}
+            # SRE Fix: Injetando o ID da pasta diretamente na config do remote
+            root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
           disable_base64: true
 
       - name: Sync FROM Google Drive (Targeted)
         run: |
           mkdir -p output/
-          rclone copy gdrive: output/ --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" -v
+          # Agora o 'gdrive:' ja aponta diretamente para a pasta correta
+          rclone copy gdrive: output/ -v
 
       - name: Run Engine
         run: |
@@ -45,13 +48,14 @@ jobs:
 
       - name: Sync TO Google Drive (Targeted)
         run: |
-          rclone copy output/ gdrive: --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" -v
+          rclone copy output/ gdrive: -v
 
-      - name: Telegram Notification (Multi-Report)
+      - name: Telegram Notification (All Reports)
         env:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          # Loop para garantir que todos os relatórios gerados sejam enviados
           for file in output/relatorio_master_dojo_*.txt; do
             curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
               -F chat_id="${TG_CHAT_ID}" \
