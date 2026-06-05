@@ -19,7 +19,6 @@ Bunkai: cod:4,3,11
 Kumite: cod:4,3,6,8,11,9,10
 Observação: Cabeça baixa durante a execução das técnicas.
 
-
 Avaliador 1 Sensei Paulo:
 Faixa Amarela:
 Nome do aluno: Wesley

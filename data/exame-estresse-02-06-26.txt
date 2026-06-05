@@ -12,12 +12,6 @@ Kata: cod:5,7
 Bunkai: cod:9
 Kumite: cod:10,12
 Observação: Base muito alta.
-Nome do aluno: Caio
-Kihon: cod:1,2,3
-Kata: cod:1,5
-Bunkai: cod:2,9
-Kumite: cod:10,6
-Observação: Melhorar o foco visual.
 Nome do aluno: Dora
 Kihon: cod:1,7,12
 Kata: cod:5,8
@@ -135,11 +129,6 @@ Kata: cod:5,7,1
 Bunkai: cod:9,11
 Kumite: cod:10,12,6
 Observação: Precisa baixar o quadril.
-Nome do aluno: Caio
-Kihon: cod:1,2,3,4
-Kata: cod:1,5,6
-Bunkai: cod:2,9,11
-Kumite: cod:10,6,7
 Observação: Sem foco no alvo.
 Nome do aluno: Dora
 Kihon: cod:1,7,12,2
@@ -243,7 +232,6 @@ Kata: cod:5,8,9
 Bunkai: cod:9,11,12
 Kumite: cod:10,4,11
 Observação: Sem energia.
-
 Avaliador 3 Sensei [Maria]:
 Faixa Branca:
 Nome do aluno: Ana
@@ -258,12 +246,6 @@ Kata: cod:5
 Bunkai: cod:9
 Kumite: cod:10
 Observação: Melhorar postura.
-Nome do aluno: Caio
-Kihon: cod:1,2
-Kata: cod:1
-Bunkai: cod:2
-Kumite: cod:10
-Observação: Focar mais.
 Nome do aluno: Dora
 Kihon: cod:1,7
 Kata: cod:5

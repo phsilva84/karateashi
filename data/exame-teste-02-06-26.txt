@@ -17,11 +17,6 @@ Kihon: cod:1,7
 Kata: cod:2
 Bunkai: cod:4
 Kumite: cod:9
-Nome do aluno: Carla
-Kihon: cod:4,8
-Kata: cod:12
-Bunkai: cod:1
-Kumite: cod:6
 Nome do aluno: Diego
 Kihon: cod:5,7
 Kata: cod:1,2
@@ -77,11 +72,6 @@ Kihon: cod:1
 Kata: cod:2,6
 Bunkai: cod:4
 Kumite: cod:9,11
-Nome do aluno: Carla
-Kihon: cod:4
-Kata: cod:12,8
-Bunkai: cod:1,2
-Kumite: cod:6
 Nome do aluno: Diego
 Kihon: cod:5
 Kata: cod:1,2,7
@@ -137,11 +127,6 @@ Kihon: cod:7
 Kata: cod:2
 Bunkai: cod:4,3
 Kumite: cod:9
-Nome do aluno: Carla
-Kihon: cod:8
-Kata: cod:12
-Bunkai: cod:1,11
-Kumite: cod:6,4
 Nome do aluno: Diego
 Kihon: cod:7
 Kata: cod:1,2
