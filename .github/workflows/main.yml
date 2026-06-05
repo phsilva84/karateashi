@@ -8,8 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Se seus segredos estiverem dentro de um "Environment" no GitHub, 
-    # descomente a linha abaixo e coloque o nome correto:
+    # CRÍTICO: Se seus segredos estão em um "Environment" no GitHub, 
+    # você PRECISA descomentar a linha abaixo e colocar o nome exato:
     # environment: production 
 
     steps:
@@ -35,11 +35,15 @@ jobs:
             token = ${{ secrets.RCLONE_CONFIG_GDRIVE_TOKEN }}
           disable_base64: true
 
-      - name: Verify Secrets (Safe Check)
+      - name: Verify Secrets (SRE Debug Mode)
+        # Usamos env para garantir que o shell receba o valor do contexto do GitHub
+        env:
+          CHECK_TOKEN: ${{ secrets.RCLONE_CONFIG_GDRIVE_TOKEN }}
+          CHECK_FOLDER: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
-          if [ -z "${{ secrets.RCLONE_CONFIG_GDRIVE_TOKEN }}" ]; then echo "ERRO: RCLONE_CONFIG_GDRIVE_TOKEN esta vazio"; exit 1; fi
-          if [ -z "${{ secrets.GDRIVE_FOLDER_ID }}" ]; then echo "ERRO: GDRIVE_FOLDER_ID esta vazio"; exit 1; fi
-          echo "Segredos injetados com sucesso."
+          if [ -z "$CHECK_TOKEN" ]; then echo "ERRO: Segredo RCLONE_CONFIG_GDRIVE_TOKEN nao injetado"; exit 1; fi
+          if [ -z "$CHECK_FOLDER" ]; then echo "ERRO: Segredo GDRIVE_FOLDER_ID nao injetado"; exit 1; fi
+          echo "Injeçao de segredos validada com sucesso."
 
       - name: Sync FROM Google Drive
         run: |
