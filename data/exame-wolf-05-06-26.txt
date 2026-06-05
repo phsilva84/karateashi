@@ -52,4 +52,4 @@ Kihon: cod:3,1,2,2,2
 Kata: cod:1,6,1,1,6,7,5,2
 Bunkai: cod:1,11,6
 Kumite: cod:11,12,8,4,9
-Observação: Melhorar todas as bases.
+Observação: Melhorar as bases.

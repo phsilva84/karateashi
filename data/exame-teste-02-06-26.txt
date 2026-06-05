@@ -12,11 +12,6 @@ Kata: cod:
 Bunkai: cod:
 Kumite: cod:
 Observação: Excelente técnica.
-Nome do aluno: Bruno
-Kihon: cod:1,7
-Kata: cod:2
-Bunkai: cod:4
-Kumite: cod:9
 Nome do aluno: Diego
 Kihon: cod:5,7
 Kata: cod:1,2
@@ -67,11 +62,6 @@ Kata: cod:
 Bunkai: cod:
 Kumite: cod:
 Observação: Impecável.
-Nome do aluno: Bruno
-Kihon: cod:1
-Kata: cod:2,6
-Bunkai: cod:4
-Kumite: cod:9,11
 Nome do aluno: Diego
 Kihon: cod:5
 Kata: cod:1,2,7
@@ -122,11 +112,6 @@ Kata: cod:
 Bunkai: cod:
 Kumite: cod:
 Observação: Muito bom.
-Nome do aluno: Bruno
-Kihon: cod:7
-Kata: cod:2
-Bunkai: cod:4,3
-Kumite: cod:9
 Nome do aluno: Diego
 Kihon: cod:7
 Kata: cod:1,2

@@ -60,12 +60,6 @@ Kata: cod:1,5
 Bunkai: cod:2,9
 Kumite: cod:10,6
 Observação: Mais energia nos golpes.
-Nome do aluno: Leo
-Kihon: cod:1,7,12
-Kata: cod:5,8
-Bunkai: cod:9,11
-Kumite: cod:10,4
-Observação: Foco no oponente.
 Nome do aluno: Mara
 Kihon: cod:1,7,2
 Kata: cod:1,5,6
@@ -178,12 +172,6 @@ Kata: cod:1,5,9
 Bunkai: cod:2,9,12
 Kumite: cod:10,6,8
 Observação: Sem Kime.
-Nome do aluno: Leo
-Kihon: cod:1,7,12,6
-Kata: cod:5,8,11
-Bunkai: cod:9,11,2
-Kumite: cod:10,4,12
-Observação: Olhar para o chão.
 Nome do aluno: Mara
 Kihon: cod:1,7,2,8
 Kata: cod:1,5,6,9
@@ -294,12 +282,6 @@ Kata: cod:1
 Bunkai: cod:2
 Kumite: cod:10
 Observação: Golpe mais firme.
-Nome do aluno: Leo
-Kihon: cod:1,7
-Kata: cod:5
-Bunkai: cod:9
-Kumite: cod:10
-Observação: Olhar para frente.
 Nome do aluno: Mara
 Kihon: cod:1,7
 Kata: cod:1,5
