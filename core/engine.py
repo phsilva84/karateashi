@@ -31,7 +31,6 @@ def gerar_relatorio_master(results, suffix, recomendações, elogios):
                 f.write("   Observacoes:\n")
                 for sensei, texto in r['observacoes_por_sensei'].items():
                     f.write(f"     [Sensei {sensei}] - {texto}\n")
-            
             f.write("\n\n")
         
         f.write("--- RECOMENDACOES PEDAGOGICAS AO SENSEI (CONSENSO) ---\n\n")

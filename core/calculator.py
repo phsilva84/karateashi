@@ -53,7 +53,6 @@ def analisar_dojo(results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
             stats.setdefault(cod, {}).setdefault(av, set()).add(aluno)
     
     recomendações = []
-    codigos_com_erro = set()
     for cod in sorted(RECOMENDACOES.keys()):
         av_dict = stats.get(cod, {})
         if len(av_dict) == num_avaliadores:
@@ -63,7 +62,6 @@ def analisar_dojo(results: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
             config = RECOMENDACOES[cod]
             if pct >= (config.get('threshold', 0.30) * 100):
                 recomendações.append(f"[{config['severidade']}] ({pct:.0f}% - {qtd}/{total_alunos} alunos): {config['descricao']} — {config['recomendacao']}")
-                codigos_com_erro.add(cod)
 
     elogios = []
     for cod, texto in PONTOS_POSITIVOS.items():

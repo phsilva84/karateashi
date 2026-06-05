@@ -1,21 +1,17 @@
 from pathlib import Path
 
-# DIRETÓRIOS
 DATA_DIR = Path('data')
 PROCESSED_DIR = DATA_DIR / 'processed'
 OUTPUT_DIR = Path('output')
 
-# CONFIGURAÇÕES DE EXAME
 CATEGORIES = ['Kihon', 'Kata', 'Bunkai', 'Kumite']
-APPROVAL_THRESHOLD = 70.0  # Meta para aprovação
+APPROVAL_THRESHOLD = 70.0
 
-# Tabela de Pesos v1.1
 WEIGHT_TABLE = {
     'A1': 1.0, 'A2': 1.0, 'A3': 1.0, 'A4': 0.5, 'A5': 2.0, 'A6': 1.0,
     'A7': 1.0, 'A8': 0.5, 'A9': 1.0, 'A10': 2.5, 'A11': 1.0, 'A12': 0.5,
 }
 
-# RECOMENDAÇÕES AO SENSEI v1.5 (TEXTO PURO)
 RECOMENDACOES = {
     'A1': {'descricao': 'Base Incorreta', 'severidade': 'CRÍTICO', 'recomendacao': 'Priorizar exercícios de fixação de base e distribuição de peso nas próximas aulas.', 'threshold': 0.30},
     'A2': {'descricao': 'Execução Técnica Incorreta', 'severidade': 'IMPORTANTE', 'recomendacao': 'Dedicar tempo para correção coletiva de trajetórias e rotação de quadril e punho.', 'threshold': 0.30},
@@ -31,7 +27,6 @@ RECOMENDACOES = {
     'A12': {'descricao': 'Rigidez Muscular / Respiração Bloqueada', 'severidade': 'OBSERVAÇÃO', 'recomendacao': 'Introduzir rotinas de soltura de ombros e exercícios de respiração diafragmática.', 'threshold': 0.30}
 }
 
-# DESTAQUES POSITIVOS v1.5
 PONTOS_POSITIVOS = {
     'A1': 'Excelente domínio das bases e estabilidade postural',
     'A2': 'Alta precisão técnica e fluidez nos movimentos',
