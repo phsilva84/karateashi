@@ -30,6 +30,8 @@ jobs:
             [gdrive]
             type = drive
             token = ${{ secrets.RCLONE_CONFIG_GDRIVE_TOKEN }}
+          # SRE Fix: Desabilita a tentativa de decodificar o config como base64
+          disable_base64: true
 
       - name: Sync FROM Google Drive (Idempotência)
         run: |
