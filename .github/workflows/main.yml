@@ -66,3 +66,4 @@ jobs:
           else
             echo "Nenhuma alteracao real detectada. Telegram em silencio."
           fi
+          
