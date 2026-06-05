@@ -32,10 +32,9 @@ jobs:
             token = ${{ secrets.GDRIVE_TOKEN }}
           disable_base64: true
 
-      - name: Sync FROM Google Drive
+      - name: Sync FROM Google Drive (Targeted)
         run: |
           mkdir -p output/
-          # Usando o segredo GDRIVE_TOKEN para o config e o ID da pasta se necessário
           rclone copy gdrive: output/ --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" -v
 
       - name: Run Engine
@@ -44,17 +43,18 @@ jobs:
           mkdir -p data/processed/
           python core/engine.py
 
-      - name: Sync TO Google Drive
+      - name: Sync TO Google Drive (Targeted)
         run: |
           rclone copy output/ gdrive: --drive-root-folder-id "${{ secrets.GDRIVE_FOLDER_ID }}" -v
 
-      - name: Telegram Notification
+      - name: Telegram Notification (Multi-Report)
         env:
           TG_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          MASTER_FILE=$(ls -t output/relatorio_master_dojo_*.txt | head -1)
-          curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
-            -F chat_id="${TG_CHAT_ID}" \
-            -F document="@$MASTER_FILE" \
-            -F caption="🥋 Relatório Master do Dojo Processado."
+          for file in output/relatorio_master_dojo_*.txt; do
+            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument" \
+              -F chat_id="${TG_CHAT_ID}" \
+              -F document="@$file" \
+              -F caption="🥋 Relatório Master: $(basename $file)"
+          done
