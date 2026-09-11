@@ -1,73 +1,166 @@
-import re
+"""core/parser.py — Parser do fallback TXT v2.0 (contingência manual).
+
+Formato por bloco (separador ---):
+    EXAME: ...
+    DOJO: ...
+    AVALIADOR: ...
+    ALUNO: <id> | <nome>
+    FAIXA: <atual> -> <pretendida>
+    KIHON: cod:1,1,3
+    Observação Kihon: ...
+    KATA: cod:2
+    Observação Kata: ...
+    BUNKAI: cod:7
+    Observação Bunkai: ...
+    KUMITE: cod:3
+    Observação Kumite: ...
+
+Saída: JSON intermediário schema v2.0, um dict por avaliador+aluno.
+"""
+from __future__ import annotations
+
+import json
 import logging
+import re
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-from core.config import CATEGORIES
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger("karate-ashi.parser")
 
-def _parse_evaluator(line: str) -> Optional[str]:
-    patterns = [
-        r'Avaliador\s+\d+\s+Sensei\s+\[(.+?)\]',
-        r'Avaliador\s+\d+\s+Sensei\s+(.+?):',
-        r'Avaliador\s+\d+\s+Sensei\s+(.+?)$'
-    ]
-    for p in patterns:
-        m = re.search(p, line.strip())
-        if m: return m.group(1).strip()
-    return None
+QUESITOS = ["kihon", "kata", "bunkai", "kumite"]
 
-def _parse_student(line: str) -> Optional[str]:
-    m = re.search(r'Nome do aluno:\s*\[?(.+?)\]?$', line.strip())
-    return m.group(1).strip() if m else None
+RE_QUESITO = re.compile(r"^(KIHON|KATA|BUNKAI|KUMITE):\s*cod:(.*)$", re.IGNORECASE)
+RE_OBS = re.compile(
+    r"^Observação\s+(Kihon|Kata|Bunkai|Kumite):\s*(.*)$", re.IGNORECASE
+)
 
-def _parse_codes(line: str) -> List[int]:
-    m = re.search(r'cod:\s*([\d,\s]+)', line)
-    if m:
-        return [int(x.strip()) for x in m.group(1).split(',') if x.strip().isdigit()]
-    return []
+def carregar_criterios(base_cfg: Path) -> dict:
+    """Carrega a tabela da Fase 00 e devolve 'max_codigo' por quesito."""
+    cfg = json.loads(
+        (base_cfg / "criterios_por_quesito.json").read_text(encoding="utf-8")
+    )
+    return {q: len(cfg["quesitos"][q]["criterios"]) for q in QUESITOS}
 
-def parse_file(filepath: Path) -> Dict[str, List[Dict[str, Any]]]:
-    students = {}
-    current_evaluator = None
-    current_student = None
-    
-    with open(filepath, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue
-            
-            # Detecta novo avaliador e limpa o aluno atual do contexto
-            ev = _parse_evaluator(line)
-            if ev:
-                current_evaluator = ev
-                current_student = None
-                continue
-                
-            # Detecta novo aluno
-            st = _parse_student(line)
-            if st and current_evaluator:
-                current_student = st
-                eval_obj = {
-                    'evaluator': current_evaluator, 
-                    'categories': {cat: [] for cat in CATEGORIES},
-                    'observation': ""
-                }
-                students.setdefault(st, []).append(eval_obj)
-                continue
-            
-            # Captura observação vinculada ao aluno e avaliador ativos
-            if line.lower().startswith("observação:"):
-                if current_student and current_evaluator:
-                    obs_text = line.split(":", 1)[1].strip()
-                    # Garante que estamos editando a última avaliação deste aluno
-                    students[current_student][-1]['observation'] = obs_text
-                continue
+def _extrair_codigos(texto: str) -> list[int]:
+    """Transforma '1,1,3' em [1,1,3]. Erros viram exceção com mensagem clara."""
+    if not texto.strip():
+        return []
+    try:
+        codigos = [int(x) for x in texto.split(",") if x.strip() != ""]
+    except ValueError as exc:
+        raise ValueError(f"código inválido na linha 'cod:{texto}'") from exc
+    return codigos
 
-            # Captura códigos técnicos
-            for cat in CATEGORIES:
-                if line.lower().startswith(cat.lower()):
-                    codes = _parse_codes(line)
-                    if current_student and codes:
-                        students[current_student][-1]['categories'][cat].extend(codes)
-    return students
+def _chave_do_codigo(quesito: str, cod: int) -> str | None:
+    """Devolve a chave do critério. Valores são FIXOS da especificação v2.0."""
+    tabela = {
+        "kihon": {1: "base_incorreta", 2: "execucao_tecnica_incorreta",
+                  3: "movimento_sem_carga", 4: "falta_foco",
+                  5: "perda_equilibrio", 6: "ausencia_kiai"},
+        "kata": {1: "embusen_incorreto", 2: "base_incorreta",
+                 3: "falta_ritmo", 4: "ausencia_kiai",
+                 5: "execucao_tecnica_incorreta", 6: "movimento_sem_carga",
+                 7: "falta_foco", 8: "perda_equilibrio"},
+        "bunkai": {1: "base_incorreta", 2: "ausencia_kiai",
+                   3: "execucao_tecnica_incorreta", 4: "movimento_sem_carga",
+                   5: "falta_foco", 6: "perda_equilibrio",
+                   7: "distancia_inadequada", 8: "falta_controle"},
+        "kumite": {1: "movimento_sem_carga", 2: "falta_foco",
+                   3: "perda_equilibrio", 4: "ausencia_kiai",
+                   5: "distancia_inadequada", 6: "falta_combatividade",
+                   7: "falta_controle"},
+    }
+    return tabela.get(quesito, {}).get(cod)
+
+def parse_bloco(bloco: str, max_codigos: dict[str, int]) -> dict:
+    """Parseia um bloco (avaliador + aluno) e devolve o JSON v2.0."""
+    linhas = [ln.strip() for ln in bloco.strip().splitlines() if ln.strip()]
+    metadados: dict[str, str] = {}
+    avaliacoes: dict[str, dict] = {
+        q: {"frequencias": {}, "observacao": ""} for q in QUESITOS
+    }
+
+    for linha in linhas:
+        m = RE_QUESITO.match(linha)
+        if m:
+            quesito = m.group(1).lower()
+            codigos = _extrair_codigos(m.group(2))
+            max_cod = max_codigos[quesito]
+            for cod in codigos:
+                if not 1 <= cod <= max_cod:
+                    log.warning(
+                        "código %s fora do intervalo do quesito %s (max %s) — "
+                        "linha rejeitada", cod, quesito, max_cod,
+                    )
+                    continue
+                chave = _chave_do_codigo(quesito, cod)
+                if chave is None:
+                    log.warning(
+                        "código %s sem mapeamento no quesito %s — ignorado",
+                        cod, quesito,
+                    )
+                    continue
+                freq = avaliacoes[quesito]["frequencias"]
+                freq[chave] = freq.get(chave, 0) + 1
+            continue
+
+        m = RE_OBS.match(linha)
+        if m:
+            avaliacoes[m.group(1).lower()]["observacao"] = m.group(2)
+            continue
+
+        if ":" in linha:
+            chave, _, valor = linha.partition(":")
+            metadados[chave.strip().lower()] = valor.strip()
+
+    alunoid, _, alunonome = metadados.get("aluno", "|").partition("|")
+    faixas = [parte.strip() for parte in metadados.get("faixa", "").split("->")]
+    return {
+        "metadados": {
+            "versao_schema": "2.0",
+            "exame_id": metadados.get("exame", ""),
+            "dojo_id": metadados.get("dojo", ""),
+            "avaliador_id": metadados.get("avaliador", ""),
+        },
+        "aluno": {
+            "id": alunoid.strip(),
+            "nome": alunonome.strip(),
+            "faixa_atual": faixas[0] if faixas else "",
+            "faixa_pretendida": faixas[1] if len(faixas) > 1 else "",
+        },
+        "avaliacoes": avaliacoes,
+    }
+
+def parse_arquivo(caminho_txt: Path, base_cfg: Path) -> list[dict]:
+    """Lê o TXT e devolve uma lista de JSONs (um por bloco avaliador+aluno)."""
+    max_codigos = carregar_criterios(base_cfg)
+    conteudo = caminho_txt.read_text(encoding="utf-8")
+    blocos = [b for b in conteudo.split("---") if b.strip()]
+    saida = []
+    for bloco in blocos:
+        try:
+            saida.append(parse_bloco(bloco, max_codigos))
+        except ValueError as exc:
+            log.error("bloco rejeitado: %s", exc)
+    return saida
+
+# core/parser.py — (trecho) Fase 06: usar a linha FAIXA do TXT.
+
+FAIXAS_SUPORTADAS = ["branca", "amarela", "laranja", "verde", "azul"]
+
+def parse_arquivo(caminho_txt: Path, base_cfg: Path) -> list[dict]:
+    """Lê o TXT e devolve JSONs v2.0, cada um com a faixa do bloco."""
+    max_codigos = carregar_criterios(base_cfg)  # mantido
+    conteudo = caminho_txt.read_text(encoding="utf-8")
+    blocos = [b for b in conteudo.split("---") if b.strip()]
+
+    saida = []
+    for bloco in blocos:
+        try:
+            dados = parse_bloco(bloco, max_codigos)
+            faixa = dados["aluno"].get("faixa_atual", "").lower()
+            if faixa not in FAIXAS_SUPORTADAS:
+                raise ValueError(f"faixa '{faixa}' não suportada no TXT")
+            saida.append(dados)
+        except ValueError as exc:
+            log.error("bloco rejeitado: %s", exc)
+    return saida

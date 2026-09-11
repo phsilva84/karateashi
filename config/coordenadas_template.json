@@ -1,0 +1,12 @@
+{
+  "versao_template": "branca_v1",
+  "pagina": "A4",
+  "observacoes": "Valores x,y,w,h são relativos à imagem ALINHADA (pós-perspectiva). Calibrar na Fase de calibração com folhas de teste.",
+  "kihon": {
+    "base_incorreta": {"x": 0, "y": 0, "w": 350, "h": 30},
+    "execucao_tecnica_incorreta": {"x": 0, "y": 0, "w": 350, "h": 30}
+  },
+  "kata": {},
+  "bunkai": {},
+  "kumite": {}
+}

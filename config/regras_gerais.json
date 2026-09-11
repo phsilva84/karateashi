@@ -1,0 +1,18 @@
+{
+  "progressivo": [
+    {"fc_min": 0.0, "fc_max": 0.0, "multiplicador": 0.0},
+    {"fc_min": 0.1, "fc_max": 1.0, "multiplicador": 1.0},
+    {"fc_min": 1.1, "fc_max": 2.5, "multiplicador": 1.5},
+    {"fc_min": 2.6, "fc_max": 4.5, "multiplicador": 2.0},
+    {"fc_min": 4.6, "fc_max": 7.0, "multiplicador": 2.5}
+  ],
+  "trava_seguranca": {
+    "quesitos": ["bunkai", "kumite"],
+    "criterio": "falta_controle",
+    "teto": 10.0
+  },
+  "status": {
+    "aprovado_min": 70.0,
+    "recuperacao_min": 60.0
+  }
+}

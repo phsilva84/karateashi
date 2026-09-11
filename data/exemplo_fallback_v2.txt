@@ -1,0 +1,15 @@
+---
+EXAME: EXA-D01-2026-02
+DOJO: D01
+AVALIADOR: S01
+ALUNO: A01 | Isabelly Santos
+FAIXA: BRANCA -> AMARELA
+KIHON: cod:1,1,1,2,4
+Observação Kihon: Corrigir largura no Zenkutsu-dachi.
+KATA: cod:2,5
+Observação Kata: Boa velocidade, ajustar rotação.
+BUNKAI: cod:7
+Observação Bunkai: Distância muito curta na aplicação.
+KUMITE: cod:3
+Observação Kumite: Manter guarda alta durante esquivas.
+---

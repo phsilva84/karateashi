@@ -1,0 +1,17 @@
+{
+  "versao_template": "verde_v1",
+  "faixa": "verde",
+  "pagina": "A4",
+  "observacoes": "Valores x,y,w,h relativos à imagem alinhada (pós-perspectiva). Calibrar por faixa na fase de calibração OMR.",
+  "kihon": {
+    "base_incorreta": {"x": 0, "y": 0, "w": 350, "h": 30},
+    "execucao_tecnica_incorreta": {"x": 0, "y": 0, "w": 350, "h": 30},
+    "movimento_sem_carga": {"x": 0, "y": 0, "w": 350, "h": 30},
+    "falta_foco": {"x": 0, "y": 0, "w": 350, "h": 30},
+    "perda_equilibrio": {"x": 0, "y": 0, "w": 350, "h": 30},
+    "ausencia_kiai": {"x": 0, "y": 0, "w": 350, "h": 30}
+  },
+  "kata": {},
+  "bunkai": {},
+  "kumite": {}
+}

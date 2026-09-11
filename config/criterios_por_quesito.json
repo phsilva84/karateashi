@@ -1,0 +1,47 @@
+{
+  "quesitos": {
+    "kihon": {
+      "criterios": [
+        {"chave": "base_incorreta", "nome": "Base incorreta", "peso": 1.0},
+        {"chave": "execucao_incorreta", "nome": "Execução técnica incorreta", "peso": 2.0},
+        {"chave": "sem_carga", "nome": "Movimento sem carga/peso", "peso": 1.5},
+        {"chave": "ausencia_kiai", "nome": "Ausência de kiai", "peso": 2.5},
+        {"chave": "perda_equilibrio", "nome": "Perda de equilíbrio", "peso": 4.0}
+      ]
+    },
+    "kata": {
+      "criterios": [
+        {"chave": "base_incorreta", "nome": "Base incorreta", "peso": 1.0},
+        {"chave": "execucao_incorreta", "nome": "Execução técnica incorreta", "peso": 2.0},
+        {"chave": "sem_carga", "nome": "Movimento sem carga/peso", "peso": 1.5},
+        {"chave": "embusen_incorreto", "nome": "Embusen incorreto", "peso": 3.0},
+        {"chave": "falta_foco", "nome": "Falta de foco / olhar incorreto", "peso": 1.0},
+        {"chave": "perda_equilibrio", "nome": "Perda de equilíbrio", "peso": 4.0},
+        {"chave": "falta_ritmo", "nome": "Falta de ritmo", "peso": 2.0}
+      ]
+    },
+    "bunkai": {
+      "criterios": [
+        {"chave": "base_incorreta", "nome": "Base incorreta", "peso": 1.0},
+        {"chave": "execucao_incorreta", "nome": "Execução técnica incorreta", "peso": 2.0},
+        {"chave": "sem_carga", "nome": "Movimento sem carga/peso", "peso": 1.5},
+        {"chave": "ausencia_kiai", "nome": "Ausência de kiai", "peso": 2.5},
+        {"chave": "falta_foco", "nome": "Falta de foco / olhar incorreto", "peso": 1.0},
+        {"chave": "distancia_inadequada", "nome": "Distância inadequada", "peso": 1.0},
+        {"chave": "falta_controle", "nome": "Falta de controle no ataque / excesso de força / risco ao parceiro", "peso": 12.0}
+      ]
+    },
+    "kumite": {
+      "criterios": [
+        {"chave": "execucao_incorreta", "nome": "Execução técnica incorreta", "peso": 2.0},
+        {"chave": "sem_carga", "nome": "Movimento sem carga/peso", "peso": 1.5},
+        {"chave": "ausencia_kiai", "nome": "Ausência de kiai", "peso": 2.5},
+        {"chave": "falta_foco", "nome": "Falta de foco / olhar incorreto", "peso": 1.0},
+        {"chave": "perda_equilibrio", "nome": "Perda de equilíbrio", "peso": 4.0},
+        {"chave": "falta_ritmo", "nome": "Falta de ritmo", "peso": 2.0},
+        {"chave": "falta_controle", "nome": "Falta de controle no ataque / excesso de força / risco ao parceiro", "peso": 12.0},
+        {"chave": "distancia_inadequada", "nome": "Distância inadequada", "peso": 1.0}
+      ]
+    }
+  }
+}
