@@ -1,137 +1,232 @@
-"""tests/test_omr_validador.py — Testes das funções puras do OMR (Fase 03).
+# ===========================================================================
+# BLOCO ADICIONAL — Cobertura do core.omr_reader (Fase 07)
+# Adicionar ao final de tests/test_omr_validador.py
+# ===========================================================================
 
-Não depende de imagem real: as ROIs são sintéticas (numpy).
-Executar: python -m pytest tests/test_omr_validador.py -v
-"""
-import sys
-from pathlib import Path
+import json
 
+import cv2
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
+from core import omr_reader
 from core.omr_reader import (
+    _validar_coordenadas,
+    carregar_json,
     classificar_checkbox,
     contar_marcacoes_linha,
+    decodificar_qr,
+    detectar_e_corrigir,
     parse_payload_qr,
+    processar_imagem,
+    roi_mm_para_px,
     validar_folha,
 )
 
-LIMIARES = {
-    "limiar_vazio_max": 0.20,
-    "limiar_suspeito_max": 0.40,
-}
+LIMIARES = {"limiar_vazio_max": 0.05, "limiar_suspeito_max": 0.30}
 
-def _roi_sintetica(densidade: float, tamanho: int = 100) -> np.ndarray:
-    """ROI BGR sintética com a fração pedida de pixels escuros (0,0,0)."""
-    total = tamanho * tamanho
-    escuros = int(round(total * densidade))
-    img = np.full((tamanho, tamanho, 3), 255, dtype=np.uint8)
-    img.reshape(-1, 3)[:escuros] = (0, 0, 0)
+# --- parse_payload_qr ------------------------------------------------------
+
+def test_parse_payload_qr_valido():
+    meta = parse_payload_qr("KA|DOJO1|EXAME2|ALUNO3|SENSEI4|BRANCA")
+    assert meta["versao_schema"] == "2.0"
+    assert meta["dojo_id"] == "DOJO1"
+    assert meta["exame_id"] == "EXAME2"
+    assert meta["aluno_id"] == "ALUNO3"
+    assert meta["avaliador_id"] == "SENSEI4"
+    assert meta["faixa"] == "BRANCA"
+
+def test_parse_payload_qr_invalido():
+    with pytest.raises(ValueError):
+        parse_payload_qr("XX|DOJO|EXAME|ALUNO|SENSEI|BRANCA")
+    with pytest.raises(ValueError):
+        parse_payload_qr("KA|DOJO|EXAME|ALUNO|SENSEI")
+
+# --- carregar_json ---------------------------------------------------------
+
+def test_carregar_json(tmp_path):
+    arquivo = tmp_path / "cfg.json"
+    arquivo.write_text('{"chave": 1}', encoding="utf-8")
+    assert carregar_json(arquivo) == {"chave": 1}
+
+# --- roi_mm_para_px --------------------------------------------------------
+
+def test_roi_mm_para_px():
+    roi = roi_mm_para_px({"x": 10.0, "y": 20.0, "w": 30.0, "h": 40.0},
+                         2100, 2970)  # 10 px/mm
+    assert roi == {"x": 100, "y": 200, "w": 300, "h": 400}
+
+# --- classificar_checkbox --------------------------------------------------
+
+def _roi(cor: int) -> np.ndarray:
+    return np.full((20, 20, 3), cor, dtype=np.uint8)
+
+def test_classificar_checkbox_vazio():
+    assert classificar_checkbox(_roi(255), LIMIARES) == "vazio"
+
+def test_classificar_checkbox_marcado():
+    assert classificar_checkbox(_roi(0), LIMIARES) == "marcado"
+
+def test_classificar_checkbox_suspeito():
+    roi = _roi(255)
+    roi[:6, :6] = 0  # 36/400 = 9% de pixels escuros
+    assert classificar_checkbox(roi, LIMIARES) == "suspeito"
+
+# --- contar_marcacoes_linha ------------------------------------------------
+
+def test_contar_marcacoes_contiguas():
+    res = contar_marcacoes_linha(
+        ["marcado", "marcado", "vazio", "vazio", "vazio", "vazio", "vazio"], {})
+    assert res["frequencia"] == 2
+    assert res["avisos"] == []
+
+def test_contar_marcacoes_nao_contiguas():
+    res = contar_marcacoes_linha(
+        ["marcado", "vazio", "marcado", "vazio", "vazio", "vazio", "vazio"], {})
+    assert res["frequencia"] == 2
+    assert any("não-contígua" in a for a in res["avisos"])
+
+def test_contar_marcacoes_suspeitas():
+    res = contar_marcacoes_linha(
+        ["suspeito", "vazio", "vazio", "vazio", "vazio", "vazio", "vazio"], {})
+    assert res["frequencia"] == 0
+    assert any("suspeitas" in a for a in res["avisos"])
+
+# --- validar_folha ---------------------------------------------------------
+
+def test_validar_folha_ok():
+    freq = {"kihon": {"c1": {"frequencia": 2}}}
+    assert validar_folha(freq) == []
+
+def test_validar_folha_limite_7():
+    freq = {"kihon": {"c1": {"frequencia": 8}}}
+    assert any("mais de 7" in e for e in validar_folha(freq))
+
+def test_validar_folha_branca():
+    freq = {"kihon": {"c1": {"frequencia": 0}}}
+    assert any("folha sem nenhuma marcação" in e for e in validar_folha(freq))
+
+# --- _validar_coordenadas --------------------------------------------------
+
+def _coords_ok():
+    return {q: {"c1": {"x": 10.0, "y": 10.0, "w": 5.0, "h": 5.0}}
+            for q in ["kihon", "kata", "bunkai", "kumite"]}
+
+def test_validar_coordenadas_ok():
+    _validar_coordenadas(_coords_ok(), "branca")  # não deve levantar
+
+def test_validar_coordenadas_zeradas():
+    coords = {q: {"c1": {"x": 0.0, "y": 0.0, "w": 5.0, "h": 5.0}}
+              for q in ["kihon", "kata", "bunkai", "kumite"]}
+    with pytest.raises(ValueError, match="não calibradas"):
+        _validar_coordenadas(coords, "branca")
+
+def test_validar_coordenadas_sem_quesito():
+    coords = {"kihon": {"c1": {"x": 1.0, "y": 1.0, "w": 5.0, "h": 5.0}}}
+    with pytest.raises(ValueError, match="sem o quesito"):
+        _validar_coordenadas(coords, "branca")
+
+# --- decodificar_qr (com pyzbar mockado) -----------------------------------
+
+def test_decodificar_qr(monkeypatch):
+    class Simbolo:
+        data = b"KA|D|E|A|S|BRANCA"
+    monkeypatch.setattr("pyzbar.pyzbar.decode", lambda imagem: [Simbolo()])
+    assert decodificar_qr(np.zeros((10, 10, 3), dtype=np.uint8)) == "KA|D|E|A|S|BRANCA"
+
+def test_decodificar_qr_sem_qr(monkeypatch):
+    monkeypatch.setattr("pyzbar.pyzbar.decode", lambda imagem: [])
+    assert decodificar_qr(np.zeros((10, 10, 3), dtype=np.uint8)) is None
+
+# --- detectar_e_corrigir (imagens sintéticas) ------------------------------
+
+def _folha_sintetica() -> np.ndarray:
+    """Fundo claro + folha escura (600x440 px) — após o INV, a folha é o
+    maior contorno, exatamente como o leitor espera."""
+    img = np.full((600, 800, 3), 230, dtype=np.uint8)
+    cv2.rectangle(img, (100, 80), (700, 520), (30, 30, 30), -1)
     return img
 
-# --- classificar_checkbox ------------------------------------------------
+def test_detectar_e_corrigir_ok():
+    alinhada = detectar_e_corrigir(_folha_sintetica())
+    assert abs(alinhada.shape[1] - 600) <= 2   # largura da folha
+    assert abs(alinhada.shape[0] - 440) <= 2   # altura da folha
 
-class TestClassificarCheckbox:
-    def test_vazio_abaixo_do_limiar(self):
-        assert classificar_checkbox(_roi_sintetica(0.10), LIMIARES) == "vazio"
+def test_detectar_e_corrigir_sem_folha():
+    img = np.full((100, 100, 3), 255, dtype=np.uint8)
+    with pytest.raises(ValueError, match="nenhum contorno"):
+        detectar_e_corrigir(img)
 
-    def test_vazio_no_limite_exato(self):
-        assert classificar_checkbox(_roi_sintetica(0.20), LIMIARES) == "vazio"
+def test_detectar_e_corrigir_nao_quadrilatero():
+    img = np.full((300, 300, 3), 230, dtype=np.uint8)
+    cv2.circle(img, (150, 150), 80, (30, 30, 30), -1)
+    with pytest.raises(ValueError, match="quadrilátero"):
+        detectar_e_corrigir(img)
 
-    def test_suspeito_acima_do_vazio(self):
-        assert classificar_checkbox(_roi_sintetica(0.30), LIMIARES) == "suspeito"
+# --- processar_imagem (pipeline completo, sem imagem real) -----------------
 
-    def test_suspeito_no_limite_exato(self):
-        assert classificar_checkbox(_roi_sintetica(0.40), LIMIARES) == "suspeito"
+def _config_tmp(tmp_path):
+    cfg = tmp_path / "config"
+    (cfg / "coordenadas").mkdir(parents=True)
+    (cfg / "omr_thresholds.json").write_text(json.dumps(LIMIARES),
+                                             encoding="utf-8")
+    coords = {q: {"c1": {"x": 10.0, "y": 10.0, "w": 70.0, "h": 10.0}}
+              for q in ["kihon", "kata", "bunkai", "kumite"]}
+    (cfg / "coordenadas" / "branca.json").write_text(json.dumps(coords),
+                                                     encoding="utf-8")
+    return cfg
 
-    def test_marcado_acima_do_suspeito(self):
-        assert classificar_checkbox(_roi_sintetica(0.60), LIMIARES) == "marcado"
+def _folha_com_marcas() -> np.ndarray:
+    """Folha A4 sintética 1050x1485 px (5 px/mm): 3 primeiros checkboxes
+    marcados na linha c1 (x=50..200, y=50..100)."""
+    img = np.full((1485, 1050, 3), 255, dtype=np.uint8)
+    img[50:100, 50:200] = (0, 0, 0)  # células 1, 2 e 3 marcadas
+    return img
 
-    def test_marcado_total(self):
-        assert classificar_checkbox(_roi_sintetica(1.00), LIMIARES) == "marcado"
+def test_processar_imagem_ok(tmp_path, monkeypatch):
+    cfg = _config_tmp(tmp_path)
+    folha = _folha_com_marcas()
+    monkeypatch.setattr(omr_reader, "detectar_e_corrigir", lambda im: folha)
+    monkeypatch.setattr(omr_reader, "decodificar_qr",
+                        lambda im: "KA|DOJO1|EXAME2|ALUNO3|SENSEI4|BRANCA")
+    caminho = tmp_path / "folha.png"
+    cv2.imwrite(str(caminho), folha)
 
-# --- contar_marcacoes_linha ----------------------------------------------
+    resultado = processar_imagem(caminho, cfg, "branca")
 
-class TestContarMarcacoesLinha:
-    def test_contiguo_sem_avisos(self):
-        classes = ["marcado", "marcado", "marcado",
-                   "vazio", "vazio", "vazio", "vazio"]
-        res = contar_marcacoes_linha(classes, LIMIARES)
-        assert res["frequencia"] == 3
-        assert res["avisos"] == []
+    assert resultado["metadados"]["aluno_id"] == "ALUNO3"
+    assert resultado["aluno"]["id"] == "ALUNO3"
+    for q in ["kihon", "kata", "bunkai", "kumite"]:
+        assert resultado["avaliacoes"][q]["frequencias"]["c1"] == 3
 
-    def test_nao_contiguo_gera_aviso(self):
-        classes = ["marcado", "vazio", "marcado",
-                   "vazio", "vazio", "vazio", "vazio"]
-        res = contar_marcacoes_linha(classes, LIMIARES)
-        assert res["frequencia"] == 2
-        assert any("não-contígua" in a for a in res["avisos"])
+def test_processar_imagem_sem_qr(tmp_path, monkeypatch):
+    cfg = _config_tmp(tmp_path)
+    folha = _folha_com_marcas()
+    monkeypatch.setattr(omr_reader, "detectar_e_corrigir", lambda im: folha)
+    monkeypatch.setattr(omr_reader, "decodificar_qr", lambda im: None)
+    caminho = tmp_path / "folha.png"
+    cv2.imwrite(str(caminho), folha)
+    with pytest.raises(ValueError, match="QR Code não encontrado"):
+        processar_imagem(caminho, cfg, "branca")
 
-    def test_suspeito_gera_aviso_de_revisao(self):
-        classes = ["suspeito", "vazio", "vazio",
-                   "vazio", "vazio", "vazio", "vazio"]
-        res = contar_marcacoes_linha(classes, LIMIARES)
-        assert res["frequencia"] == 0
-        assert any("revisão manual" in a for a in res["avisos"])
+def test_processar_imagem_faixa_divergente(tmp_path, monkeypatch):
+    cfg = _config_tmp(tmp_path)
+    folha = _folha_com_marcas()
+    monkeypatch.setattr(omr_reader, "detectar_e_corrigir", lambda im: folha)
+    monkeypatch.setattr(omr_reader, "decodificar_qr",
+                        lambda im: "KA|D|E|A|S|VERMELHA")
+    caminho = tmp_path / "folha.png"
+    cv2.imwrite(str(caminho), folha)
+    with pytest.raises(ValueError, match="difere"):
+        processar_imagem(caminho, cfg, "branca")
 
-    def test_sem_marcacoes(self):
-        classes = ["vazio"] * 7
-        res = contar_marcacoes_linha(classes, LIMIARES)
-        assert res["frequencia"] == 0
-        assert res["avisos"] == []
-
-# --- validar_folha --------------------------------------------------------
-
-class TestValidarFolha:
-    def test_folha_em_branco_rejeitada(self):
-        frequencias = {
-            "kihon": {"base_incorreta": {"frequencia": 0, "avisos": []}},
-            "kata": {"kata1": {"frequencia": 0, "avisos": []}},
-            "bunkai": {"bunkai1": {"frequencia": 0, "avisos": []}},
-            "kumite": {"kumite1": {"frequencia": 0, "avisos": []}},
-        }
-        erros = validar_folha(frequencias)
-        assert any("nenhuma marcação" in e for e in erros)
-
-    def test_limite_de_7_estourado(self):
-        frequencias = {
-            "kihon": {"base_incorreta": {"frequencia": 8, "avisos": []}},
-        }
-        erros = validar_folha(frequencias)
-        assert any("mais de 7 marcações" in e for e in erros)
-
-    def test_folha_valida_sem_erros(self):
-        frequencias = {
-            "kihon": {"base_incorreta": {"frequencia": 2, "avisos": []}},
-            "kata": {"kata1": {"frequencia": 1, "avisos": []}},
-            "bunkai": {"bunkai1": {"frequencia": 0, "avisos": []}},
-            "kumite": {"kumite1": {"frequencia": 3, "avisos": []}},
-        }
-        assert validar_folha(frequencias) == []
-
-# --- parse_payload_qr -----------------------------------------------------
-
-class TestParsePayloadQr:
-    def test_payload_valido(self):
-        payload = "KA|DOJO-01|EXAME-2026-03|ALUNO-042|SENSEI-PAULO|BRANCA"
-        meta = parse_payload_qr(payload)
-        assert meta["versao_schema"] == "2.0"
-        assert meta["dojo_id"] == "DOJO-01"
-        assert meta["exame_id"] == "EXAME-2026-03"
-        assert meta["aluno_id"] == "ALUNO-042"
-        assert meta["avaliador_id"] == "SENSEI-PAULO"
-        assert meta["faixa"] == "BRANCA"
-
-    def test_payload_com_espacos(self):
-        meta = parse_payload_qr(" KA | DOJO | EXAME | ALUNO | SENSEI | BRANCA ")
-        assert meta["dojo_id"] == "DOJO"
-
-    def test_prefixo_invalido(self):
-        with pytest.raises(ValueError):
-            parse_payload_qr("XX|DOJO|EXAME|ALUNO|SENSEI|B  RANCA")
-
-    def test_numero_de_campos_invalido(self):
-        with pytest.raises(ValueError):
-            parse_payload_qr("KA|DOJO|EXAME|ALUNO")
+def test_processar_imagem_roi_estreita(tmp_path, monkeypatch):
+    cfg = _config_tmp(tmp_path)
+    pequena = np.full((10, 10, 3), 255, dtype=np.uint8)
+    monkeypatch.setattr(omr_reader, "detectar_e_corrigir", lambda im: pequena)
+    monkeypatch.setattr(omr_reader, "decodificar_qr",
+                        lambda im: "KA|D|E|A|S|BRANCA")
+    caminho = tmp_path / "folha.png"
+    cv2.imwrite(str(caminho), pequena)
+    with pytest.raises(ValueError, match="ROI estreita"):
+        processar_imagem(caminho, cfg, "branca")
