@@ -1,4 +1,3 @@
-
 FASE 06 — Estrutura Multi-Faixa (Branca a Azul + Placeholders)0. PERSONA E ESPECIALIDADES — ASSUMIR AUTOMATICAMENTEVocê atua como uma equipe de 3 especialistas:
 Modelador de Dados — JSON limpo, chaves consistentes, sem redundância; multi-arquivo por faixa.
 Analista Pedagógico de Karatê — domínio de Kihon, Kata, Bunkai e Kumite; entende a progressão de faixas.
@@ -115,7 +114,6 @@ Ao final, preencha o checklist de aceite.
 
 **Atualização em **`core/engine.py` (funções novas + mudança em `processa_aluno`):
 
-
 """core/engine.py — (trecho) suporte multi-faixa.
 
 processa_aluno passa a receber faixa e carrega config/faixas/<faixa></faixa>.json.
@@ -159,10 +157,7 @@ def processa_aluno(avaliacoes: list[dict], base_cfg: Path, faixa: str) -> dict:
         "faixa": faixa,
     }
 
-
 **Atualização em **`core/parser.py` (usar a linha FAIXA):
-
-
 
 # No parse_bloco, a chave "faixa" já é capturada dos metadados.
 
@@ -184,7 +179,6 @@ def parse_arquivo(caminho_txt: Path, base_cfg: Path) -> list[dict]:
         except ValueError as exc:
             log.error("bloco rejeitado: %s", exc)
     return saida
-
 
 **Atualização em **`core/omr_reader.py` (carregar coordenadas por faixa):
 
@@ -208,7 +202,6 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
     ...
 
 `tests/test_faixas.py` (resumo dos casos):
-
 
 import json
 from pathlib import Path
@@ -237,8 +230,6 @@ def test_coordenadas_por_faixa_existem(base_cfg: Path):
     for faixa in ["branca", "amarela", "laranja", "verde", "azul"]:
         assert (base_cfg / "coordenadas" / f"{faixa}.json").exists()
 
-
-
 6. Critérios de aceite
    5 arquivos de faixa com a tabela v2.0 idêntica (6/8/8/7 critérios) e nao_suportada: false.
    3 placeholders (roxa/marrom/preta) com nao_suportada: true e quesitos: {}.
@@ -249,3 +240,20 @@ def test_coordenadas_por_faixa_existem(base_cfg: Path):
    tests/test_faixas.py passando.
 7. Status
    Pendente · [ ] Em execução · [ ] Concluída (data: ___)
+
+
+## 0.5. HERANÇA DA FASE ANTERIOR
+
+- Fase 00 (tabela de critérios), Fase 01 (engine sem faixa), Fase 03 (OMR com coordenadas injetadas).
+
+## 8. ENTREGA PARA A PRÓXIMA FASE
+
+- config/faixas/*.json (5 faixas + 3 placeholders) e config/coordenadas/*.json (templates) → Fases 04 (estrutura), 07, 08.
+- Engine/parser/OMR com parâmetro faixa → Fase 08.
+
+## 9. RESUMO DA EXECUÇÃO
+
+- Criados os 5 arquivos de faixa (tabela v2.0 idêntica) + 3 placeholders (roxa/marrom/preta, nao_suportada: true).
+- Criados os templates de coordenadas por faixa (valores a calibrar).
+- processa_aluno ganhou o parâmetro faixa; parser valida a linha FAIXA; OMR carrega coordenadas por faixa e valida cruzado com o QR.
+- Executada ANTES da Fase 04: a 04 consumiu esta estrutura e preencheu valores reais de desenho nas coordenadas — sem conflito.

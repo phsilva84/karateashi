@@ -55,6 +55,14 @@
       "faixa_pretendida": "Roxa",
       "dojo_id": "D01",
       "novo": true
+    },
+    {
+      "id": "A08",
+      "nome": "Teste Azul",
+      "faixa_atual": "Azul",
+      "faixa_pretendida": "Roxa",
+      "dojo_id": "D01",
+      "novo": true
     }
   ]
 }

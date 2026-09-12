@@ -1,0 +1,86 @@
+name: Testes Automatizados Karate-Ashi
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validacao-config:
+    name: Validar Configurações JSON
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validar todos os JSONs de config/
+        run: |
+          python -c "
+          import json, pathlib
+          arquivos = list(pathlib.Path('config').rglob('*.json'))
+          assert arquivos, 'Nenhum JSON encontrado em config/'
+          for p in arquivos:
+              json.loads(p.read_text(encoding='utf-8'))
+          print(f'OK: {len(arquivos)} JSON(s) válido(s)')
+          "
+
+  testes:
+    name: Testes por Fase (Quality Gates)
+    runs-on: ubuntu-latest
+    needs: validacao-config
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar dependências
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Motor de cálculo (Fase 01)
+        run: pytest tests/test_engine.py -q --cov=core.engine --cov-fail-under=80
+      - name: Parser de fallback TXT (Fase 02)
+        run: pytest tests/test_parser.py -q --cov=core.parser --cov-fail-under=80
+      - name: OMR - funções puras (Fase 03)
+        run: pytest tests/test_omr_validador.py -q --cov=core.omr_reader --cov-fail-under=80
+      - name: Relatórios em 3 camadas (Fase 05)
+        run: pytest tests/test_relatorios.py -q --cov=core.relatorios --cov-fail-under=80
+      - name: Estrutura multi-faixa (Fase 06)
+        run: pytest tests/test_faixas.py -q --cov=core --cov-fail-under=80
+
+  estresse:
+    name: Testes de Estresse (Seção 14)
+    runs-on: ubuntu-latest
+    needs: validacao-config
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar dependências
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Cenários de borda e convergência
+        run: pytest tests/test_estresse.py -q -v
+
+  calibracao-omr:
+    name: Calibração OMR (manual)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar dependências
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Medir densidade das folhas de teste
+        run: python tools/calibrar_omr.py --gabaritos data/gabaritos/teste/

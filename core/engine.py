@@ -12,7 +12,14 @@ Fase 06 — multi-faixa:
 - a tabela de critérios passa a vir de config/faixas/<faixa>.json
   (branca, amarela, laranja, verde e azul compartilham a tabela v2.0);
 - roxa, marrom e preta são placeholders (nao_suportada: true);
-- processa_aluno passa a receber o parâmetro `faixa`.
+- processa_aluno recebe `faixa` (opcional; se ausente, deriva de
+  aluno.faixa_atual no primeiro bloco que a declarar).
+
+Item 4 — dados legados:
+- se algum bloco do aluno tiver "dados_legados": true (códigos fora da
+  tabela v2.0 descartados pelo parser), o status vira REVISAO_PENDENTE:
+  código descartado = penalidade não aplicada = nota maior que a real.
+  A decisão automática nunca vale sobre nota inflada.
 """
 
 from __future__ import annotations
@@ -20,6 +27,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+
+from core.omr_reader import QUESITOS
 
 QUESTOS_ORDEM = ["kihon", "kata", "bunkai", "kumite"]
 NOTA_MAX_QUESITO = 25.0
@@ -134,14 +143,69 @@ def classificar_status(nota_final: float, regras: dict) -> str:
         return "RECUPERACAO"
     return "REPROVADO"
 
-def processa_aluno(avaliacoes: list[dict], base_cfg: Path, faixa: str) -> dict:
-    """Recebe os JSONs de cada avaliador e devolve o resultado do aluno.
+def _validar_entrada(avaliacoes: list[dict], faixa: str | None) -> None:
+    """Recusa blocos ausentes ou incompletos antes de qualquer cálculo.
 
-    avaliacoes: lista com um dict por avaliador, no schema v2.0:
-      {"avaliacoes": {"kihon": {"frequencias": {...}, "observacao": "..."}, ...}}
-
-    Fase 06: a tabela de critérios vem de config/faixas/<faixa>.json.
+    Sem isto, a ausência de dados zera a soma de descontos e o aluno sai
+    com nota 100.0 e APROVADO — sem erro. Falha de leitura nunca pode
+    virar aprovação máxima.
     """
+    if avaliacoes is None:
+        raise ValueError(
+            f"avaliacoes=None para a faixa '{faixa}': nenhum bloco de "
+            "avaliador foi fornecido"
+        )
+    if not isinstance(avaliacoes, (list, tuple)):
+        raise TypeError(
+            f"avaliacoes deve ser list, veio {type(avaliacoes).__name__}"
+        )
+    if len(avaliacoes) == 0:
+        raise ValueError(
+            f"nenhum bloco de avaliador para a faixa '{faixa}'. "
+            "Ausência de dados não é ausência de falhas: sem blocos, a soma "
+            "de descontos seria 0 e o aluno sairia com 100.0 / APROVADO."
+        )
+    for i, bloco in enumerate(avaliacoes):
+        if not isinstance(bloco, dict):
+            raise TypeError(
+                f"avaliacoes[{i}] deveria ser dict, "
+                f"veio {type(bloco).__name__}"
+            )
+        detalhe = bloco.get("avaliacoes")
+        if not isinstance(detalhe, dict) or not detalhe:
+            raise ValueError(
+                f"avaliacoes[{i}] sem a chave 'avaliacoes' preenchida — "
+                "bloco de avaliador incompleto"
+            )
+        faltando = [q for q in QUESITOS if q not in detalhe]
+        if faltando:
+            raise ValueError(
+                f"avaliacoes[{i}] sem os quesitos: {', '.join(faltando)}"
+            )
+
+def _derivar_faixa(avaliacoes: list[dict]) -> str:
+    """Obtém a faixa do primeiro bloco que a declarar (aluno.faixa_atual)."""
+    for bloco in avaliacoes:
+        faixa = (bloco.get("aluno") or {}).get("faixa_atual")
+        if faixa:
+            return faixa
+    raise ValueError(
+        "faixa não informada pelo chamador nem presente nos blocos de "
+        "avaliador (aluno.faixa_atual)"
+    )
+
+def processa_aluno(avaliacoes: list[dict], base_cfg: Path,
+                   faixa: str | None = None) -> dict:
+    """Consolida os blocos dos avaliadores e devolve o resultado do aluno.
+
+    GUARD v2.0: recusa entrada vazia ou malformada. Ausência de dados
+    jamais produz nota máxima silenciosa. A faixa pode vir do chamador
+    ou ser derivada do primeiro bloco que a declarar (aluno.faixa_atual).
+    """
+    _validar_entrada(avaliacoes, faixa)
+    if faixa is None:
+        faixa = _derivar_faixa(avaliacoes)
+
     quesitos_cfg = carregar_faixa(base_cfg, faixa)
     regras = carregar_json(base_cfg / "regras_gerais.json")
 
@@ -154,9 +218,48 @@ def processa_aluno(avaliacoes: list[dict], base_cfg: Path, faixa: str) -> dict:
         soma += r["nota"]
 
     nota_final = round(soma, 1)
+    status_bruto = classificar_status(nota_final, regras)
+
+    # --- Item 4: dados legados ---
+    blocos_legados = [av for av in avaliacoes if av.get("dados_legados")]
+    descartados: dict[str, list[int]] = {}
+    for av in blocos_legados:
+        for quesito, codigos in av.get("codigos_descartados", {}).items():
+            descartados.setdefault(quesito, []).extend(codigos)
+
+    if blocos_legados:
+        status = "REVISAO_PENDENTE"
+        alerta_legado = {
+            "motivo": ("registro contém códigos do formato antigo; "
+                       "nota pode estar incompleta"),
+            "codigos_descartados": descartados,
+        }
+    else:
+        status = status_bruto
+        alerta_legado = None
+
+    # --- Item 3: repassa observações para o relatório (Fase 05) ---
+    observacoes_por_quesito: dict[str, list[str]] = {}
+    observacoes_gerais: list[str] = []
+    for av in avaliacoes:
+        for quesito in QUESTOS_ORDEM:
+            texto = (av.get("avaliacoes", {}).get(quesito, {}) or {}).get(
+                "observacao", "")
+            if texto:
+                observacoes_por_quesito.setdefault(quesito, []).append(texto)
+        if av.get("observacao_geral"):
+            observacoes_gerais.append(av["observacao_geral"])
+
     return {
         "nota_final": nota_final,
-        "status": classificar_status(nota_final, regras),
+        "status": status,
+        "status_bruto": status_bruto,
         "quesitos": resultados,
         "faixa": faixa,
+        "dados_legados": bool(blocos_legados),
+        "alerta_legado": alerta_legado,
+        "observacoes": {
+            "por_quesito": observacoes_por_quesito,
+            "gerais": observacoes_gerais,
+        },
     }

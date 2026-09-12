@@ -1,4 +1,3 @@
-
 FASE 08 — Pipeline de Produção v2.0 (Integração Final)0. PERSONA E ESPECIALIDADES — ASSUMIR AUTOMATICAMENTEVocê atua como uma equipe de 3 especialistas:
 Engenheiro SRE/DevOps — GitHub Actions, rclone, secrets, idempotência, observabilidade, jobs com dependências.
 Dev Python Sênior — orquestração de módulos, subprocess, requests, tratamento de erros.
@@ -37,8 +36,6 @@ Secrets: TELEGRAM_BOT_TOKEN e RCLONE_CONF configurados no repositório.
  Rodar workflow_dispatch com dados de teste e validar o fluxo completo.
  Registrar no Status (seção 7).
 5. Código de referência.github/workflows/pipeline.yml:
-
-
 
 name: Pipeline Karate-Ashi v2.0
 
@@ -131,7 +128,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: python core/notifications.py --output output --config config
 
-
 `config/canais.json` (modelo — preencher com os valores reais):
 
 {
@@ -148,10 +144,7 @@ jobs:
   }
 }
 
-
 `core/pipeline.py`:
-
-
 
 """core/pipeline.py — Orquestrador do processamento v2.0.
 
@@ -239,10 +232,7 @@ def main() -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 
-
 `core/notifications.py`:
-
-
 
 """core/notifications.py — Distribuição de relatórios (Telegram + Drive).
 
@@ -358,7 +348,6 @@ def main() -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 
-
 Ajuste no requirements.txt (adicionar):requests>=2.316. Critérios de aceite
  pipeline.yml com os 3 jobs encadeados (sincronizar-entrada → processar-exame → distribuir).
  core/pipeline.py processa um lote de teste (imagens OMR e/ou TXT) e gera output/relatorio_individual.txt.
@@ -375,3 +364,20 @@ Fase 08 entrega o pipeline de produção v2.0: 3 jobs encadeados (rclone → pro
 core/pipeline.py orquestra OMR → engine → relatórios; core/notifications.py faz Telegram + Drive com idempotência MD5 e validação de chat_id (corrige o bug histórico da v1.1).
 Canais e pastas vêm de config/canais.json — multi-dojo e separação Sensei/Mestres sem hardcode.
 Ordem final das fases: 00 → 01 → 02 → 03 → 06 → 04 → 05 → 07 → 08.
+
+
+## 0.5. HERANÇA DA FASE ANTERIOR
+
+- Fases 01–06 entregaram os módulos; Fase 07 entregará o pipeline de testes.
+- pipeline.yml v1.1 antigo existe no repo (parse TXT + envio único) — será substituído.
+
+## 8. ENTREGA PARA A PRÓXIMA FASE
+
+- pipeline.yml v2.0 (3 jobs), core/pipeline.py, core/notifications.py, config/canais.json → sistema operacional final, ponta a ponta.
+
+## 9. RESUMO DA EXECUÇÃO
+
+- Fase NÃO executada (pendente). CORREÇÕES identificadas na revisão:
+  1. core/pipeline.py hardcoda a faixa "branca" em processar_imagem — quebra folhas não-brancas no exame multi-faixa; a faixa deve vir do QR.
+  2. .ka-notify-state.json não persiste entre runs do GitHub Actions (checkout limpo) — a idempotência só funciona dentro de uma execução; persistir no Drive ou como artefato.
+  3. Roteamento multi-dojo: relatorio_individual.txt contém todos os alunos e é enviado a cada dojo — vaza dados entre unidades; gerar relatórios por dojo e cópia seletiva.

@@ -1,25 +1,41 @@
 """core/omr_reader.py — Leitura OMR dos gabaritos Karate-Ashi v2.0.
+
 Pipeline:
-1. carregar imagem (300 DPI recomendado);
+1. carregar imagem (foto de celular ou scanner);
 2. detectar a folha (maior contorno quadrangular);
 3. corrigir perspectiva (warpPerspective);
 4. decodificar QR Code (pyzbar) e extrair metadados;
-5. extrair as ROIs dos checkboxes (coordenadas_template.json);
+5. extrair as ROIs dos checkboxes (config/coordenadas/<faixa>.json);
 6. classificar densidade de pixels (omr_thresholds.json);
 7. validar (contiguidade, suspeitos, folha em branco, limite 7);
 8. gerar JSON intermediário schema v2.0.
-Calibração: os thresholds e as coordenadas NÃO ficam no código — vêm de
-config/omr_thresholds.json e config/coordenadas_template.json.
+
+Coordenadas: o JSON da faixa guarda x,y,w,h em MILÍMETROS, com origem no
+canto superior esquerdo da folha A4. O leitor converte para pixels usando
+o tamanho real da imagem já alinhada — por isso a mesma coordenada vale
+para qualquer resolução de foto ou scanner. O gerador é o tools/pre_exame.py
+(folha e leitor gêmeos por construção); coordenadas não calibradas (tudo
+zero) são rejeitadas com mensagem clara, em vez de produzir nota vazia.
+
+Observações: avaliacoes[q]["observacao"] vem de
+data/observacoes/<exame>/<avaliador>.csv via core/observacoes.py. Se o
+módulo não existir, o campo sai vazio (comportamento anterior).
 """
 from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Any
+
 import cv2
 import numpy as np
 from pyzbar.pyzbar import decode
 
 QUESITOS = ["kihon", "kata", "bunkai", "kumite"]
+
+# Dimensões A4 em mm — base da conversão mm -> px das coordenadas.
+LARGURA_A4_MM = 210.0
+ALTURA_A4_MM = 297.0
 
 def carregar_json(caminho: Path) -> dict:
     with open(caminho, "r", encoding="utf-8") as fh:
@@ -116,58 +132,54 @@ def validar_folha(frequencias: dict[str, dict]) -> list[str]:
         erros.append("folha sem nenhuma marcação — verificar digitalização")
     return erros
 
-def processar_imagem(caminho_imagem: Path, base_cfg: Path,
-                     coordenadas: dict) -> dict:
-    """Fluxo completo: imagem -> JSON v2.0 (ou raise com erro claro)."""
-    limiares = carregar_json(base_cfg / "omr_thresholds.json")
-    imagem = cv2.imread(str(caminho_imagem))
-    if imagem is None:
-        raise ValueError(f"não foi possível abrir a imagem: {caminho_imagem}")
-    alinhada = detectar_e_corrigir(imagem)
-    payload = decodificar_qr(alinhada)
-    if not payload:
-        raise ValueError("QR Code não encontrado — folha inválida ou sem QR")
-    metadados = parse_payload_qr(payload)
-    frequencias: dict[str, dict[str, Any]] = {}
+def roi_mm_para_px(roi_mm: dict, largura_px: int, altura_px: int) -> dict:
+    """Converte uma ROI em mm (origem no topo-esquerda) para pixels da
+    imagem alinhada — usa o tamanho REAL da imagem, então vale para
+    qualquer resolução de foto ou scanner."""
+    px_mm_x = largura_px / LARGURA_A4_MM
+    px_mm_y = altura_px / ALTURA_A4_MM
+    x = round(float(roi_mm["x"]) * px_mm_x)
+    y = round(float(roi_mm["y"]) * px_mm_y)
+    w = round(float(roi_mm["w"]) * px_mm_x)
+    h = round(float(roi_mm["h"]) * px_mm_y)
+    return {"x": x, "y": y, "w": w, "h": h}
+
+def _validar_coordenadas(coordenadas: dict, faixa: str) -> None:
+    """Rejeita coordenadas não calibradas (placeholders em zero).
+
+    Sem isso, um arquivo com x=0,y=0 faz o leitor ler o canto da imagem e
+    produzir nota silenciosamente errada.
+    """
     for quesito in QUESITOS:
-        frequencias[quesito] = {}
-        for chave, roi_mapa in coordenadas[quesito].items():
-            x, y, w, h = (int(v) for v in roi_mapa.values())
-            roi = alinhada[y:y + h, x:x + w]
-            classes = []
-            passo = w // 7
-            for i in range(7):
-                celula = roi[:, i * passo:(i + 1) * passo]
-                classes.append(classificar_checkbox(celula, limiares))
-            contagem = contar_marcacoes_linha(classes, limiares)
-            frequencias[quesito][chave] = contagem
-    erros = validar_folha(frequencias)
-    if erros:
-        raise ValueError("; ".join(erros))
-    return {
-        "metadados": metadados,
-        "aluno": {"id": metadados.pop("aluno_id"),
-                  "faixa_atual": metadados.pop("faixa")},
-        "avaliacoes": {
-            q: {"frequencias": {k: v["frequencia"]
-                                for k, v in criterios.items()},
-                "observacao": ""}
-            for q, criterios in frequencias.items()
-        },
-    }
-    
-    # core/omr_reader.py — (trecho) Fase 06: carregar coordenadas por faixa.
+        linhas = coordenadas.get(quesito, {})
+        if not linhas:
+            raise ValueError(
+                f"coordenadas sem o quesito '{quesito}' na faixa '{faixa}' — "
+                f"gere as folhas com tools/pre_exame.py (que grava "
+                f"config/coordenadas/{faixa}.json)")
+        for chave, roi in linhas.items():
+            if float(roi.get("x", 0)) == 0 and float(roi.get("y", 0)) == 0:
+                raise ValueError(
+                    f"coordenadas não calibradas em '{faixa}.{quesito}.{chave}' "
+                    f"(x=0, y=0) — gere as folhas com tools/pre_exame.py")
 
 def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
-    """Fluxo completo com layout da faixa."""
+    """Fluxo completo com layout da faixa -> JSON v2.0.
+
+    Coordenadas em mm (config/coordenadas/<faixa>.json) são convertidas
+    para pixels pelo tamanho real da imagem alinhada.
+    """
     limiares = carregar_json(base_cfg / "omr_thresholds.json")
     coordenadas = carregar_json(base_cfg / "coordenadas" / f"{faixa}.json")
+    _validar_coordenadas(coordenadas, faixa)
 
     imagem = cv2.imread(str(caminho_imagem))
     if imagem is None:
         raise ValueError(f"não foi possível abrir a imagem: {caminho_imagem}")
 
     alinhada = detectar_e_corrigir(imagem)
+    altura_px, largura_px = alinhada.shape[:2]
+
     payload = decodificar_qr(alinhada)
     if not payload:
         raise ValueError("QR Code não encontrado — folha inválida ou sem QR")
@@ -181,5 +193,46 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
             f"layout carregado ({faixa})"
         )
 
-    # Segmentação usando coordenadas[quesito][chave] (restante idêntico à Fase 03)
-    ...
+    frequencias: dict[str, dict[str, Any]] = {}
+    for quesito in QUESITOS:
+        frequencias[quesito] = {}
+        for chave, roi_mm in coordenadas.get(quesito, {}).items():
+            roi_px = roi_mm_para_px(roi_mm, largura_px, altura_px)
+            x, y, w, h = roi_px["x"], roi_px["y"], roi_px["w"], roi_px["h"]
+            if w < 7:
+                raise ValueError(
+                    f"ROI estreita demais em {quesito}.{chave} (w={w}px) — "
+                    f"coordenadas incorretas ou imagem muito pequena")
+            roi = alinhada[y:y + h, x:x + w]
+            passo = w // 7
+            classes = []
+            for i in range(7):
+                celula = roi[:, i * passo:(i + 1) * passo]
+                classes.append(classificar_checkbox(celula, limiares))
+            contagem = contar_marcacoes_linha(classes, limiares)
+            frequencias[quesito][chave] = contagem
+
+    erros = validar_folha(frequencias)
+    if erros:
+        raise ValueError("; ".join(erros))
+
+    resultado = {
+        "metadados": metadados,
+        "aluno": {"id": metadados["aluno_id"],
+                  "faixa_atual": metadados["faixa"]},
+        "avaliacoes": {
+            q: {"frequencias": {k: v["frequencia"]
+                                for k, v in criterios.items()},
+                "observacao": ""}
+            for q, criterios in frequencias.items()
+        },
+    }
+
+    # Observações digitais (item 3): preenche avaliacoes[q]["observacao"].
+    try:
+        from core import observacoes
+        resultado = observacoes.merge_no_json(resultado)
+    except ImportError:
+        pass
+
+    return resultado

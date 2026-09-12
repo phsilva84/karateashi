@@ -305,8 +305,7 @@ if __name__ == "__main__":
 
 # Karate-Ashi
 
-![Testes](<[https://github.com/seu_usuario</<SEU_REPOSITORIO>/actions/workflows/testes.yml/badge.svg>>)]([https://github.com/%3CSEU_USUARIO](<https://github.com/%3CSEU_USUARIO>))
-
+![Testes]([[https://github.com/seu_usuario<SEU_REPOSITORIO</a/actions/workflows/testes.yml/badge.svg&gt;&gt;)](](<%5Bhttps://github.com/seu_usuario%3C/%3CSEU_REPOSITORIO>)[https://github.com/%3CSEU_USUARIO](<https://github.com/%3CSEU_USUARIO>))
 
 6. Critérios de aceite
    Workflow Testes Automatizados Karate-Ashi aparece na aba Actions do repositório.
@@ -323,3 +322,18 @@ if __name__ == "__main__":
    Fase 07 entrega o testes.yml com 4 jobs: validação de JSONs, testes por fase (cobertura ≥ 80%), estresse e calibração OMR manual.
    Ela não inventa testes: amarra os tests/ já definidos nas Fases 01–06 e adiciona test_estresse.py com os cenários da Seção 14.
    O requisito pendente da Fase 07 é criar tools/calibrar_omr.py (esqueleto incluso acima), usado apenas no job manual.
+
+
+## 0.5. HERANÇA DA FASE ANTERIOR
+
+- Fases 01–06 entregaram os módulos e os testes por fase (test_engine, test_parser, test_omr_validador, test_faixas, test_relatorios).
+- processa_aluno já recebe faixa (Fase 06) — os testes de estresse usam essa assinatura.
+
+## 8. ENTREGA PARA A PRÓXIMA FASE
+
+- testes.yml (4 jobs), requirements-dev.txt, conftest.py, test_estresse.py, calibrar_omr.py → validam as Fases 01–06 antes da Fase 08.
+
+## 9. RESUMO DA EXECUÇÃO
+
+- Fase NÃO executada (pendente).
+- Notas: badge do README com placeholder a corrigir (usar https://github.com/phsilva84/karateashi/actions/workflows/testes.yml/badge.svg); o helper _avaliacao_vazia cobre só os critérios de Kihon — considerar completar para exercitar embusen_incorreto e falta_combatividade.

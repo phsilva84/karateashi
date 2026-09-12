@@ -5,6 +5,11 @@ Cobre os critérios de aceite:
 - código fora do intervalo rejeitado com aviso no log (sem abortar o arquivo);
 - observações granulares (uma por quesito) capturadas nos campos corretos;
 - cabeçalho (exame, dojo, avaliador, aluno, faixa) parseado corretamente.
+
+Fase 06 (multi-faixa): o parser lê config/faixas/<faixa>.json e
+carregar_criterios exige a faixa. O fixture base_cfg grava faixas/branca.json
+com os critérios na ordem da tabela v2.0 — o código de falha é o campo
+'codigo' (1-based) de cada critério.
 """
 import json
 import logging
@@ -21,6 +26,49 @@ from core.parser import (  # noqa: E402
     parse_arquivo,
     parse_bloco,
 )
+
+FAIXA_TESTE = "branca"
+
+# Ordem dos critérios na tabela v2.0. O 'codigo' é a posição (1-based).
+CRITERIOS_V2 = {
+    "kihon": [
+        "base_incorreta",
+        "execucao_tecnica_incorreta",
+        "movimento_sem_carga",
+        "falta_foco",
+        "perda_equilibrio",
+        "ausencia_kiai",
+    ],
+    "kata": [
+        "embusen_incorreto",
+        "base_incorreta",
+        "falta_ritmo",
+        "ausencia_kiai",
+        "execucao_tecnica_incorreta",
+        "movimento_sem_carga",
+        "falta_foco",
+        "perda_equilibrio",
+    ],
+    "bunkai": [
+        "base_incorreta",
+        "ausencia_kiai",
+        "execucao_tecnica_incorreta",
+        "movimento_sem_carga",
+        "falta_foco",
+        "perda_equilibrio",
+        "distancia_inadequada",
+        "falta_controle",
+    ],
+    "kumite": [
+        "movimento_sem_carga",
+        "falta_foco",
+        "perda_equilibrio",
+        "ausencia_kiai",
+        "distancia_inadequada",
+        "falta_combatividade",
+        "falta_controle",
+    ],
+}
 
 BLOCO_VALIDO = """\
 EXAME: EXA-D01-2026-02
@@ -40,27 +88,38 @@ Observação Kumite: Manter guarda alta durante esquivas.
 
 @pytest.fixture
 def base_cfg(tmp_path: Path) -> Path:
-    """Config mínima da Fase 00: Kihon 1-6, Kata 1-8, Bunkai 1-8, Kumite 1-7."""
+    """Config no layout multi-faixa (Fase 06): config/faixas/<faixa>.json.
+
+    Antes o fixture escrevia criterios_por_quesito.json na raiz (layout
+    Fase 00), que o parser não lê mais. Agora grava faixas/branca.json com
+    os critérios na ordem da tabela v2.0 — o parser mapeia código -> chave
+    pelo campo 'codigo' (1-based) de cada critério.
+    """
     cfg = {
+        "faixa": FAIXA_TESTE,
         "quesitos": {
-            "kihon": {"criterios": [{} for _ in range(6)]},
-            "kata": {"criterios": [{} for _ in range(8)]},
-            "bunkai": {"criterios": [{} for _ in range(8)]},
-            "kumite": {"criterios": [{} for _ in range(7)]},
-        }
+            q: {"criterios": [
+                {"codigo": i, "chave": ch, "nome": ch, "peso": 1.0}
+                for i, ch in enumerate(chaves, start=1)
+            ]}
+            for q, chaves in CRITERIOS_V2.items()
+        },
     }
-    (tmp_path / "criterios_por_quesito.json").write_text(
+    destino = tmp_path / "faixas"
+    destino.mkdir(parents=True)
+    (destino / f"{FAIXA_TESTE}.json").write_text(
         json.dumps(cfg, ensure_ascii=False), encoding="utf-8"
     )
     return tmp_path
 
 def test_carregar_criterios(base_cfg: Path) -> None:
-    max_codigos = carregar_criterios(base_cfg)
-    assert max_codigos == {"kihon": 6, "kata": 8, "bunkai": 8, "kumite": 7}
+    criterios = carregar_criterios(base_cfg, FAIXA_TESTE)
+    assert {q: criterios[q]["total"] for q in criterios} == {
+        "kihon": 6, "kata": 8, "bunkai": 8, "kumite": 7}
 
 def test_parse_valido(base_cfg: Path) -> None:
-    max_codigos = carregar_criterios(base_cfg)
-    resultado = parse_bloco(BLOCO_VALIDO, max_codigos)
+    criterios = carregar_criterios(base_cfg, FAIXA_TESTE)
+    resultado = parse_bloco(BLOCO_VALIDO, criterios)
 
     # Cabeçalho
     assert resultado["metadados"]["versao_schema"] == "2.0"
@@ -89,8 +148,8 @@ def test_parse_valido(base_cfg: Path) -> None:
     assert kumite["perda_equilibrio"] == 1           # cod:3
 
 def test_observacoes_granulares(base_cfg: Path) -> None:
-    max_codigos = carregar_criterios(base_cfg)
-    resultado = parse_bloco(BLOCO_VALIDO, max_codigos)
+    criterios = carregar_criterios(base_cfg, FAIXA_TESTE)
+    resultado = parse_bloco(BLOCO_VALIDO, criterios)
     av = resultado["avaliacoes"]
     assert av["kihon"]["observacao"] == "Corrigir largura no Zenkutsu-dachi."
     assert av["kata"]["observacao"] == "Boa velocidade, ajustar rotação."
@@ -100,15 +159,17 @@ def test_observacoes_granulares(base_cfg: Path) -> None:
 def test_codigo_invalido_rejeita_linha_sem_abortar(
     base_cfg: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    max_codigos = carregar_criterios(base_cfg)
+    criterios = carregar_criterios(base_cfg, FAIXA_TESTE)
     bloco = BLOCO_VALIDO.replace("KIHON: cod:1,1,1,2,4", "KIHON: cod:1,7,2")
     with caplog.at_level(logging.WARNING, logger="karate-ashi.parser"):
-        resultado = parse_bloco(bloco, max_codigos)
+        resultado = parse_bloco(bloco, criterios)
 
     kihon = resultado["avaliacoes"]["kihon"]["frequencias"]
     assert kihon["base_incorreta"] == 1              # cod:1 válido
     assert kihon["execucao_tecnica_incorreta"] == 1  # cod:2 válido
-    assert "fora do intervalo" in caplog.text
+    assert "fora da tabela" in caplog.text
+    assert resultado["dados_legados"] is True
+    assert resultado["codigos_descartados"]["kihon"] == [7]
     # O resto do bloco não foi abortado
     assert resultado["avaliacoes"]["kata"]["frequencias"]["base_incorreta"] == 1
 

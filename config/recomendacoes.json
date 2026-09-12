@@ -1,0 +1,38 @@
+{
+  "base_incorreta": "Reforçar fundamentos de postura: largura, profundidade e distribuição de peso (Kiba-dachi, Zenkutsu-dachi).",
+  "execucao_tecnica_incorreta": "Revisar trajetória dos golpes, rotação de punho e recolhimento.",
+  "movimento_sem_carga": "Trabalhar transferência de peso e contração final (Kime).",
+  "falta_foco": "Treinar direcionamento do olhar (Metsuke) e concentração no alvo.",
+  "perda_equilibrio": "Exercícios de estabilidade, centro de gravidade e transições de base.",
+  "ausencia_kiai": "Praticar expiração forte e projeção vocal sincronizada com a técnica.",
+  "embusen_incorreto": "Reestudar o traçado do Kata e os pontos de retorno.",
+  "falta_ritmo": "Trabalhar cadência, pausas e fluidez respeitando o embusen.",
+  "distancia_inadequada": "Treinar controle de Ma-ai: distância de engajamento e recuo.",
+  "falta_combatividade": "Estimular atitude ofensiva, entrada e contra-ataque sem passividade.",
+  "falta_controle": "Reforçar controle de impacto e segurança do parceiro — prioridade absoluta.",
+  "defesa_incompleta": "",
+  "tensao_respiracao": "",
+  "elogio_transversal": "Base exemplar: nenhuma marcação de {criterio} em {quesitos}.",
+  "elogio_quesito_perfeito": "{quesito} impecável: nenhuma falha registrada pelos avaliadores.",
+  "destaque_geral": "Destaque do exame: excelência técnica consistente em todas as categorias.",
+  "exercicios": {
+    "base_incorreta": "Kihon de bases: 3 séries de 10 repetições alternando Kiba-dachi e Zenkutsu-dachi, pausa de 5s por base, conferindo largura e distribuição de peso.",
+    "execucao_tecnica_incorreta": "Treino de trajetória: repetir Oi-zuki e Gyaku-zuki em câmera lenta, conferindo rotação de punho e recolhimento no quadril.",
+    "movimento_sem_carga": "Trabalhar Kime: golpes com contração final e transferência de peso, 3 séries de 10 com pausa no impacto.",
+    "falta_foco": "Drill de Metsuke: executar sequências curtas olhando fixamente para o alvo, sem desviar o olhar.",
+    "perda_equilibrio": "Exercícios de estabilidade: 1 minuto em Kiba-dachi, transições lentas entre bases e subidas em um pé só.",
+    "ausencia_kiai": "Praticar kiai em cada técnica final de sequência, com expiração forte e projeção vocal do abdômen.",
+    "embusen_incorreto": "Reestudar o embusen do Kata com marcações no chão (fitas) e repetir os pontos de retorno.",
+    "falta_ritmo": "Treinar o Kata com metrônomo ou contagem do Sensei, respeitando pausas e cadência do embusen.",
+    "distancia_inadequada": "Drill de Ma-ai: duplas alternando entrada e recuo, controlando distância de engajamento.",
+    "falta_combatividade": "Kumite progressivo: estimular entrada e contra-ataque, com foco em atitude ofensiva sem passividade.",
+    "falta_controle": "Kumite controlado: treinar impacto dosado no alvo (foco e recuo do golpe) — prioridade absoluta de segurança.",
+    "defesa_incompleta": "Revisar bloqueios completos: trajetória, retorno e cobertura simultânea.",
+    "tensao_respiracao": "Respiração diafragmática: expirar na execução, inspirar na preparação, 3 séries de 10 técnicas."
+  },
+  "_notas": {
+    "defesa_incompleta": "A9 — texto oficial pendente (biblioteca da Fase 05 não o incluiu).",
+    "tensao_respiracao": "A12 — texto oficial pendente (biblioteca da Fase 05 não o incluiu).",
+    "falta_combatividade": "Presente na biblioteca oficial, porém sem código A1-A12 correspondente — mantido para compatibilidade."
+  }
+}
