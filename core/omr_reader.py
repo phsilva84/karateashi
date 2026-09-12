@@ -5,22 +5,29 @@ Pipeline:
 2. detectar a folha (maior contorno quadrangular);
 3. corrigir perspectiva (warpPerspective);
 4. decodificar QR Code (pyzbar) e extrair metadados;
-5. extrair as ROIs dos checkboxes (config/coordenadas/<faixa>.json);
+5. extrair as ROIs dos checkboxes (config/coordenadas/.json);
 6. classificar densidade de pixels (omr_thresholds.json);
 7. validar (contiguidade, suspeitos, folha em branco, limite 7);
 8. gerar JSON intermediário schema v2.0.
 
 Coordenadas: o JSON da faixa guarda x,y,w,h em MILÍMETROS, com origem no
-canto superior esquerdo da folha A4. O leitor converte para pixels usando
-o tamanho real da imagem já alinhada — por isso a mesma coordenada vale
-para qualquer resolução de foto ou scanner. O gerador é o tools/pre_exame.py
+canto superior esquerdo da folha A4. O leitor converte para pixels usando o
+tamanho real da imagem já alinhada — por isso a mesma coordenada vale para
+qualquer resolução de foto ou scanner. O gerador é o tools/pre_exame.py
 (folha e leitor gêmeos por construção); coordenadas não calibradas (tudo
 zero) são rejeitadas com mensagem clara, em vez de produzir nota vazia.
 
-Observações: avaliacoes[q]["observacao"] vem de
-data/observacoes/<exame>/<avaliador>.csv via core/observacoes.py. Se o
-módulo não existir, o campo sai vazio (comportamento anterior).
+Observações: avaliacoes[q]["observacao"] vem de data/observacoes//.csv via
+core/observacoes.py. Se o módulo não existir, o campo sai vazio
+(comportamento anterior).
+
+Correção Fase 07: import do pyzbar movido para DENTRO de decodificar_qr()
+(lazy import). O pyzbar depende da biblioteca nativa libzbar0, ausente no
+runner ubuntu-latest do GitHub Actions. Com o import local, as funções puras
+(validação, densidade, contiguidade) não dependem da lib nativa e o módulo
+importa sem quebrar em qualquer ambiente.
 """
+
 from __future__ import annotations
 
 import json
@@ -29,7 +36,9 @@ from typing import Any
 
 import cv2
 import numpy as np
-from pyzbar.pyzbar import decode
+
+# NOTA: NÃO importar pyzbar aqui no topo.
+# O import acontece dentro de decodificar_qr() — ver abaixo.
 
 QUESITOS = ["kihon", "kata", "bunkai", "kumite"]
 
@@ -43,6 +52,8 @@ def carregar_json(caminho: Path) -> dict:
 
 def decodificar_qr(imagem: np.ndarray) -> str | None:
     """Decodifica o primeiro QR encontrado; devolve o texto ou None."""
+    from pyzbar.pyzbar import decode  # import local — correção Fase 07
+
     for obj in decode(imagem):
         return obj.data.decode("utf-8", errors="replace")
     return None
@@ -66,8 +77,7 @@ def detectar_e_corrigir(imagem: np.ndarray) -> np.ndarray:
     cinza = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(cinza, (5, 5), 0)
     _, otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    contornos, _ = cv2.findContours(otsu, cv2.RETR_EXTERNAL,
-                                    cv2.CHAIN_APPROX_SIMPLE)
+    contornos, _ = cv2.findContours(otsu, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contornos:
         raise ValueError("nenhum contorno de folha encontrado")
     folha = max(contornos, key=cv2.contourArea)
@@ -84,8 +94,7 @@ def detectar_e_corrigir(imagem: np.ndarray) -> np.ndarray:
     baixo_dir = pts[np.argmax(soma)]
     topo_dir = pts[np.argmin(diff)]
     baixo_esq = pts[np.argmax(diff)]
-    ordem = np.array([topo_esq, topo_dir, baixo_dir, baixo_esq],
-                     dtype="float32")
+    ordem = np.array([topo_esq, topo_dir, baixo_dir, baixo_esq], dtype="float32")
     largura = max(int(np.linalg.norm(ordem[1] - ordem[0])),
                   int(np.linalg.norm(ordem[2] - ordem[3])))
     altura = max(int(np.linalg.norm(ordem[3] - ordem[0])),
@@ -99,8 +108,7 @@ def detectar_e_corrigir(imagem: np.ndarray) -> np.ndarray:
 def classificar_checkbox(roi: np.ndarray, limiares: dict) -> str:
     """Classifica uma ROI: 'vazio' | 'suspeito' | 'marcado'."""
     cinza = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    _, binaria = cv2.threshold(cinza, 0, 255,
-                               cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    _, binaria = cv2.threshold(cinza, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     densidade = float(np.count_nonzero(binaria)) / binaria.size
     if densidade <= limiares["limiar_vazio_max"]:
         return "vazio"
@@ -134,8 +142,8 @@ def validar_folha(frequencias: dict[str, dict]) -> list[str]:
 
 def roi_mm_para_px(roi_mm: dict, largura_px: int, altura_px: int) -> dict:
     """Converte uma ROI em mm (origem no topo-esquerda) para pixels da
-    imagem alinhada — usa o tamanho REAL da imagem, então vale para
-    qualquer resolução de foto ou scanner."""
+    imagem alinhada — usa o tamanho REAL da imagem, então vale para qualquer
+    resolução de foto ou scanner."""
     px_mm_x = largura_px / LARGURA_A4_MM
     px_mm_y = altura_px / ALTURA_A4_MM
     x = round(float(roi_mm["x"]) * px_mm_x)
@@ -166,8 +174,8 @@ def _validar_coordenadas(coordenadas: dict, faixa: str) -> None:
 def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
     """Fluxo completo com layout da faixa -> JSON v2.0.
 
-    Coordenadas em mm (config/coordenadas/<faixa>.json) são convertidas
-    para pixels pelo tamanho real da imagem alinhada.
+    Coordenadas em mm (config/coordenadas/.json) são convertidas para pixels
+    pelo tamanho real da imagem alinhada.
     """
     limiares = carregar_json(base_cfg / "omr_thresholds.json")
     coordenadas = carregar_json(base_cfg / "coordenadas" / f"{faixa}.json")
@@ -183,15 +191,13 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
     payload = decodificar_qr(alinhada)
     if not payload:
         raise ValueError("QR Code não encontrado — folha inválida ou sem QR")
-
     metadados = parse_payload_qr(payload)
 
     # A faixa do QR deve bater com a faixa esperada (validação cruzada):
     if metadados.get("faixa", "").lower() != faixa.lower():
         raise ValueError(
             f"faixa do QR ({metadados.get('faixa')}) difere do "
-            f"layout carregado ({faixa})"
-        )
+            f"layout carregado ({faixa})")
 
     frequencias: dict[str, dict[str, Any]] = {}
     for quesito in QUESITOS:
@@ -218,11 +224,9 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
 
     resultado = {
         "metadados": metadados,
-        "aluno": {"id": metadados["aluno_id"],
-                  "faixa_atual": metadados["faixa"]},
+        "aluno": {"id": metadados["aluno_id"], "faixa_atual": metadados["faixa"]},
         "avaliacoes": {
-            q: {"frequencias": {k: v["frequencia"]
-                                for k, v in criterios.items()},
+            q: {"frequencias": {k: v["frequencia"] for k, v in criterios.items()},
                 "observacao": ""}
             for q, criterios in frequencias.items()
         },
