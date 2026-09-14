@@ -7,7 +7,8 @@ Uso:
 
 Fluxo:
 1. lê o CSV (alunos com faixa atual e pretendida);
-2. merge idempotente no cadastro (novos com "novo": true);
+2. merge idempotente no cadastro (novos com "novo": true; existentes têm
+   nome, faixas e dojo atualizados);
 3. para cada avaliador x aluno, desenha a folha usando o layout da faixa;
 4. gera o QR Code com o payload padrão e salva o PDF;
 5. GRAVA config/coordenadas/<faixa>.json com a posição real de cada linha
@@ -20,27 +21,32 @@ Cada quesito mantém seus critérios com 7 checkboxes.
 
 Observações estruturadas (v2col-2.8):
 - A observação do avaliador nasce na FOLHA como checkboxes, uniformes para
-  todas as faixas: coluna 'Ótimo!' (obs_p1..p8) e coluna 'A Melhorar'
-  (obs_m1..m8). SEM limite de marcações: o avaliador marca as opções que
-  se aplicam; o OMR lê cada checkbox de forma independente e o relatório
-  concatena tudo.
+  todas as faixas: coluna 'Ótimo!' (obs_p1..p8) e 'A Melhorar' (obs_m1..m8).
+  SEM limite de marcações: o avaliador marca as opções que se aplicam; o OMR
+  lê cada checkbox de forma independente e o relatório concatena tudo.
 - SEM campo 'Outro': a observação é 100% estruturada — nenhuma transcrição
   manual entra no fluxo.
-- Substitui as caixas de escrita livre por quesito e o CSV digitado ao
-  final: o OMR lê as marcações na mesma passada dos códigos de erro.
+- O VOCABULÁRIO vive em core/observacoes.py (OBS_POSITIVAS/OBS_MELHORAR) e é
+  IMPORTADO daqui — folha e relatório nunca divergem (princípio dos gêmeos).
+  As chaves das ROIs gravadas são exatamente as chaves do vocabulário.
 - ICR (manuscrito) descartado por acurácia.
 - Alinhamento: o baseline do texto é deslocado -0.35*tamanho (pt), de modo
-  que o centro visual do texto (baseline + 0.35*tamanho) coincide com o
-  centro do checkbox — texto e quadrado na MESMA linha de centro.
+  que o centro visual do texto coincide com o centro do checkbox.
 - Espaçamento: respiro de 10mm entre o título da seção e os cabeçalhos
   'Ótimo!'/'A Melhorar', e 6mm entre o cabeçalho e a primeira opção.
+
+Nomes legíveis (opcional):
+- config/dojos.json       {"D01": "Dojo Central"}
+- config/avaliadores.json {"S01": "Sensei Paulo"}
+- O cabeçalho imprime "Dojo Central (D01)" / "Sensei Paulo (S01)".
+- Arquivo ausente ou inválido não quebra a geração (cai para o ID puro).
 
 v2col-2.4 (mantido):
 - QR desenhado POR ÚLTIMO no canto superior direito (nada cobre);
 - sem estampa de versão na folha;
 - entrelinha 8,5mm, quesito 12pt, critério 9pt — os blocos de quesitos
-  terminam ~93mm acima da base; a seção de observações estruturadas
-  ocupa o rodapé.
+  terminam ~93mm acima da base; a seção de observações estruturadas ocupa
+  o rodapé.
 
 IMPORTANTE: a geometria de desenho é FIXA no código (constantes abaixo).
 O config/coordenadas/<faixa>.json é apenas SAÍDA (registra o que foi
@@ -52,6 +58,11 @@ arquivos com ou sem BOM (Excel/PowerShell 5.1 gravam com BOM).
 Dependências: qrcode[pil], reportlab.
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import argparse
 import csv
@@ -65,6 +76,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
+
+from core.observacoes import OBS_MELHORAR, OBS_POSITIVAS
 
 FAIXAS_SUPORTADAS = ["branca", "amarela", "laranja", "verde", "azul"]
 QUESITOS_ORDEM = ["kihon", "kata", "bunkai", "kumite"]
@@ -83,39 +96,18 @@ COLUNAS = [
 COL_LARGURA_MM = 88.0
 
 # Geometria dos checkboxes (dentro da coluna) — FIXA.
-CHECKBOX_X_OFFSET_MM = 46.0   # do início da coluna até o 1º checkbox
+CHECKBOX_X_OFFSET_MM = 46.0  # do início da coluna até o 1º checkbox
 CHECKBOX_PASSO_MM = 5.5
 CHECKBOX_LADO_MM = 4.0
 CHECKBOX_QTD = 7
 
 # Observações estruturadas — UNIFORMES para todas as faixas (v2col-2.8).
-# Substituem as caixas de escrita livre por quesito: o avaliador marca
-# opções e o OMR lê as marcações na mesma passada dos códigos de erro.
-# SEM campo 'Outro' — a observação é 100% estruturada.
-OBS_POSITIVAS = [
-    "Boa execução técnica",
-    "Ótima base / postura",
-    "Chutes firmes",
-    "Boa concentração / foco",
-    "Bom controle e defesa",
-    "Combate técnico / ágil",
-    "Ótima Execução do Kata",
-    "Ótima execução de Kihons",
-]
-OBS_MELHORAR = [
-    "Melhorar bases / postura",
-    "Dificuldade nas Transiçoes de Bases",
-    "Falta kiai (usar mais o kiai)",
-    "Falta foco / olhar nas técnicas",
-    "Mais carga nos golpes",
-    "Erros Técnicos Constantes",
-    "Execução Incorreta do Kata",
-    "Dificuldade na execução de Kihons",
-]
-OBS_COL_X_MM = [15.0, 107.0]   # x das colunas da seção (mm)
-OBS_CHK_LADO_MM = 4.5          # checkbox da seção (um pouco maior p/ OMR)
-OBS_LINHA_MM = 6.5             # altura de linha da seção
-OBS_TEXTO_X_OFFSET_MM = 7.0    # texto após o checkbox
+# O vocabulário (16 opções) vem de core/observacoes.py — fonte única.
+# As chaves das ROIs são exatamente as chaves do vocabulário (obs_p1...).
+OBS_COL_X_MM = [15.0, 107.0]  # x das colunas da seção (mm)
+OBS_CHK_LADO_MM = 4.5         # checkbox da seção (um pouco maior p/ OMR)
+OBS_LINHA_MM = 6.5            # altura de linha da seção
+OBS_TEXTO_X_OFFSET_MM = 7.0   # texto após o checkbox
 
 # QR Code — canto superior direito (desenhado por último, nada cobre).
 QR_LADO_MM = 22.0
@@ -125,15 +117,15 @@ QR_MARGEM_MM = 10.0
 FONTE_TITULO = 13
 FONTE_QUESITO = 12
 FONTE_CRITERIO = 9
-FONTE_CRITERIO_MIN = 7   # limite inferior do ajuste automático
-FONTE_OBS = 9            # texto das opções de observação
+FONTE_CRITERIO_MIN = 7  # limite inferior do ajuste automático
+FONTE_OBS = 9           # texto das opções de observação
 FONTE_DADO = 10
 FONTE_RODAPE = 9
-LINHA_MM = 8.5           # entrelinha dos critérios (distribui pela página)
+LINHA_MM = 8.5          # entrelinha dos critérios (distribui pela página)
 MAX_CRITERIOS_BLOCO = 8  # reserva fixa por bloco — alinha as colunas
-ESPACO_TITULO_MM = 7.0   # espaço após o título do quesito
+ESPACO_TITULO_MM = 7.0  # espaço após o título do quesito
 GAP_TEXTO_CHECKBOX_MM = 2.0  # folga mínima entre texto e checkboxes
-GAP_APOS_BLOCO_MM = 8.0  # respiro após o bloco do quesito
+GAP_APOS_BLOCO_MM = 8.0      # respiro após o bloco do quesito
 
 RODAPE_TEXTO = ("Como marcar: preencha TOTALMENTE o quadrado (caneta preta "
                 "ou lápis 2B), da esquerda para a direita, sem pular "
@@ -145,6 +137,26 @@ def carregar_json(caminho: Path) -> dict:
     with open(caminho, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
+def carregar_nomes(caminho: Path) -> dict:
+    """Carrega config/dojos.json ou config/avaliadores.json ({} se ausente).
+
+    Arquivo ausente ou inválido não quebra a geração — o cabeçalho cai
+    para o ID puro.
+    """
+    if not caminho.exists():
+        return {}
+    try:
+        dados = carregar_json(caminho)
+    except (json.JSONDecodeError, OSError):
+        print(f"[AVISO] arquivo de nomes inválido, ignorado: {caminho}")
+        return {}
+    return dados if isinstance(dados, dict) else {}
+
+def _rotulo(identificador: str, nomes: dict) -> str:
+    """'S01' -> 'Sensei Paulo (S01)'; sem nome cadastrado, só o ID."""
+    nome = nomes.get(identificador)
+    return f"{nome} ({identificador})" if nome else identificador
+
 def normalizar_faixa(faixa: str) -> str:
     """Remove acentos e normaliza para uppercase (payload QR sem acentos)."""
     sem_acentos = unicodedata.normalize("NFKD", faixa)
@@ -154,10 +166,15 @@ def normalizar_faixa(faixa: str) -> str:
 def montar_payload(dojo: str, exame: str, aluno_id: str,
                    sensei_id: str, faixa: str) -> str:
     """KA|DOJO|EXAME|ALUNO|SENSEI|FAIXA — sem acentos, com pipes."""
-    return "|".join(["KA", dojo, exame, aluno_id, sensei_id, normalizar_faixa(faixa)])
+    return "|".join(["KA", dojo, exame, aluno_id, sensei_id,
+                     normalizar_faixa(faixa)])
 
 def atualizar_cadastro(csv_path: Path, cadastro_path: Path) -> list[dict]:
-    """Merge idempotente do CSV no alunos.json."""
+    """Merge idempotente do CSV no alunos.json.
+
+    Novos alunos entram com "novo": true. Alunos existentes têm nome,
+    faixas e dojo atualizados (sem recriar o registro).
+    """
     cadastro = (json.loads(cadastro_path.read_text(encoding="utf-8"))
                 if cadastro_path.exists() else {"alunos": []})
     por_id = {a["id"]: a for a in cadastro["alunos"]}
@@ -171,7 +188,7 @@ def atualizar_cadastro(csv_path: Path, cadastro_path: Path) -> list[dict]:
                 por_id[aluno_id] = aluno
                 novos.append(aluno)
             else:
-                for campo in ("faixa_atual", "faixa_pretendida", "dojo_id"):
+                for campo in ("nome", "faixa_atual", "faixa_pretendida", "dojo_id"):
                     if row.get(campo):
                         por_id[aluno_id][campo] = row[campo]
     cadastro_path.parent.mkdir(parents=True, exist_ok=True)
@@ -248,8 +265,8 @@ def desenhar_paragrafo(pdf: canvas.Canvas, texto: str, x: float, y: float,
     return y - (len(linhas) - 1) * leading
 
 def desenhar_checkbox_rotulado(pdf: canvas.Canvas, x: float, centro_y: float,
-                               texto: str, tamanho: float,
-                               lado_mm: float, texto_offset_mm: float,
+                               texto: str, tamanho: float, lado_mm: float,
+                               texto_offset_mm: float,
                                coords_out: dict | None = None,
                                chave_coord: str | None = None) -> None:
     """Checkbox com texto à direita, alinhados na MESMA linha de centro.
@@ -274,41 +291,45 @@ def desenhar_observacoes_estruturadas(pdf: canvas.Canvas, y_base: float,
                                       coords_out: dict | None = None) -> float:
     """Seção única de observações estruturadas — uniforme para todas as faixas.
 
-    Duas colunas: 'Ótimo!' (positivas, obs_p1..p8) e 'A Melhorar'
-    (correções, obs_m1..m8). SEM limite de marcações e SEM campo 'Outro' —
-    a observação é 100% estruturada.
+    Duas colunas: 'Ótimo!' (positivas, obs_p1..p8) e 'A Melhorar' (correções,
+    obs_m1..m8). O vocabulário vem de core/observacoes.py (fonte única) e as
+    chaves das ROIs gravadas são exatamente as chaves do vocabulário.
+    SEM limite de marcações e SEM campo 'Outro' — a observação é 100%
+    estruturada.
 
     Espaçamento (v2col-2.8): 10mm entre o título da seção e os cabeçalhos,
     e 6mm entre o cabeçalho e a primeira opção.
-
     y_base = linha de base do título da seção. Retorna o y da base.
     """
     pdf.setFont("Helvetica-Bold", 10)
     pdf.drawString(15 * mm, y_base,
                    "OBSERVAÇÕES DO AVALIADOR — marque as opções que se aplicam")
-    y = y_base - 10 * mm         # respiro entre título e cabeçalhos
-    colunas = [("Ótimo!", OBS_POSITIVAS, "p"),
-               ("A Melhorar", OBS_MELHORAR, "m")]
-    for idx, (titulo, opcoes, prefixo) in enumerate(colunas):
+    y = y_base - 10 * mm  # respiro entre título e cabeçalhos
+    colunas = [("Ótimo!", OBS_POSITIVAS), ("A Melhorar", OBS_MELHORAR)]
+    for idx, (titulo, opcoes) in enumerate(colunas):
         x = OBS_COL_X_MM[idx] * mm
         pdf.setFont("Helvetica-Bold", 10)
         pdf.drawString(x, y, titulo)
-        y_linha = y - 6 * mm     # respiro entre cabeçalho e 1ª opção
-        for i, opcao in enumerate(opcoes, start=1):
+        y_linha = y - 6 * mm  # respiro entre cabeçalho e 1ª opção
+        for chave, opcao in opcoes.items():
             desenhar_checkbox_rotulado(
                 pdf, x, y_linha, opcao, FONTE_OBS,
                 OBS_CHK_LADO_MM, OBS_TEXTO_X_OFFSET_MM,
-                coords_out, f"obs_{prefixo}{i}")
+                coords_out, chave)
             y_linha -= OBS_LINHA_MM * mm
     return y_linha - OBS_LINHA_MM * mm
 
 def desenhar_marcadores_fiduciais(pdf: canvas.Canvas, largura: float,
                                   altura: float) -> None:
-    """Marcadores de registro em 3 cantos. O QR no canto superior direito
-    funciona como 4ª referência de alinhamento para o OMR (Fase 03)."""
+    """Marcadores de registro em 3 cantos.
+
+    O QR no canto superior direito funciona como 4ª referência de
+    alinhamento para o OMR (Fase 03).
+    """
     margem = 8 * mm
     tam = 6 * mm
-    cantos = ((margem, margem), (largura - margem, margem),
+    cantos = ((margem, margem),
+              (largura - margem, margem),
               (margem, altura - margem))
     for cx, cy in cantos:
         pdf.setLineWidth(0.8)
@@ -320,19 +341,26 @@ def desenhar_marcadores_fiduciais(pdf: canvas.Canvas, largura: float,
 def desenhar_folha(pdf: canvas.Canvas, aluno: dict, sensei_id: str,
                    dojo: str, exame: str, faixa_cfg: dict,
                    coordenadas: dict, tmp_dir: Path,
-                   coords_out: dict | None = None) -> None:
+                   coords_out: dict | None = None,
+                   dojos: dict | None = None,
+                   avaliadores: dict | None = None) -> None:
     """Desenha uma folha A4 do aluno, usando o layout da faixa.
 
     Duas colunas: esquerda (Kihon + Kata) e direita (Bunkai + Kumite).
     Cada quesito tem seus critérios com 7 checkboxes. Cada bloco reserva
     MAX_CRITERIOS_BLOCO linhas para as colunas terminarem na MESMA altura.
     A seção de observações estruturadas (uniforme) ocupa o rodapé.
-
     v2col-2.8: 16 opções estruturadas (8 + 8), sem campo 'Outro'.
     QR desenhado por último.
+
+    dojos/avaliadores: config/dojos.json e config/avaliadores.json para
+    nomes legíveis no cabeçalho (ex.: 'Sensei Paulo (S01)'). Se ausentes
+    ou sem o ID, o cabeçalho usa o ID puro.
     """
     largura, altura = A4
     faixa_label = aluno["faixa_atual"].capitalize()
+    dojos = dojos or {}
+    avaliadores = avaliadores or {}
 
     # Cabeçalho
     pdf.setFont("Helvetica-Bold", FONTE_TITULO)
@@ -342,7 +370,8 @@ def desenhar_folha(pdf: canvas.Canvas, aluno: dict, sensei_id: str,
     pdf.drawString(15 * mm, altura - 22 * mm,
                    f"Aluno: {aluno['nome']} ({aluno['id']})")
     pdf.drawString(15 * mm, altura - 28 * mm,
-                   f"Dojo: {dojo} | Exame: {exame} | Avaliador: {sensei_id}")
+                   f"Dojo: {_rotulo(dojo, dojos)} | Exame: {exame} | "
+                   f"Avaliador: {_rotulo(sensei_id, avaliadores)}")
 
     # Desenha cada coluna de forma independente, mas com o MESMO ritmo
     # vertical (blocos reservados em MAX_CRITERIOS_BLOCO linhas).
@@ -360,12 +389,10 @@ def desenhar_folha(pdf: canvas.Canvas, aluno: dict, sensei_id: str,
                 x_texto = col_x + 2 * mm
                 # Ajuste automático: reduz a fonte até o nome caber antes
                 # dos checkboxes (nunca invade a coluna dos quadrados).
-                largura_disponivel = (chk_x0 - x_texto
-                                      - GAP_TEXTO_CHECKBOX_MM * mm)
+                largura_disponivel = (chk_x0 - x_texto - GAP_TEXTO_CHECKBOX_MM * mm)
                 tamanho = FONTE_CRITERIO
-                while (tamanho > FONTE_CRITERIO_MIN
-                       and stringWidth(nome, "Helvetica", tamanho)
-                       > largura_disponivel):
+                while (tamanho > FONTE_CRITERIO_MIN and
+                       stringWidth(nome, "Helvetica", tamanho) > largura_disponivel):
                     tamanho -= 0.5
                 pdf.setFont("Helvetica", tamanho)
                 pdf.drawString(x_texto, y_atual, nome)
@@ -376,13 +403,11 @@ def desenhar_folha(pdf: canvas.Canvas, aluno: dict, sensei_id: str,
                 yb = centro - CHECKBOX_LADO_MM / 2 * mm
                 for i in range(CHECKBOX_QTD):
                     x0 = chk_x0 + i * CHECKBOX_PASSO_MM * mm
-                    pdf.rect(x0, yb, CHECKBOX_LADO_MM * mm,
-                             CHECKBOX_LADO_MM * mm)
+                    pdf.rect(x0, yb, CHECKBOX_LADO_MM * mm, CHECKBOX_LADO_MM * mm)
                 if coords_out is not None:
                     coords_out.setdefault(quesito, {})[cri["chave"]] = {
                         "x": round(chk_x0 / mm, 2),
-                        "y": round(ALTURA_A4_MM
-                                   - (yb + CHECKBOX_LADO_MM) / mm, 2),
+                        "y": round(ALTURA_A4_MM - (yb + CHECKBOX_LADO_MM) / mm, 2),
                         "w": round(CHECKBOX_QTD * CHECKBOX_PASSO_MM, 2),
                         "h": round(CHECKBOX_LADO_MM, 2),
                     }
@@ -426,8 +451,8 @@ def desenhar_folha(pdf: canvas.Canvas, aluno: dict, sensei_id: str,
     largura_util = largura - 2 * RODAPE_MARGEM_MM * mm
     linhas_rodape = quebrar_linhas(RODAPE_TEXTO, "Helvetica-Oblique",
                                    FONTE_RODAPE, largura_util)
-    y_rodape = (RODAPE_BASE_MM * mm
-                + (len(linhas_rodape) - 1) * FONTE_RODAPE * 1.25)
+    y_rodape = (RODAPE_BASE_MM * mm +
+                (len(linhas_rodape) - 1) * FONTE_RODAPE * 1.25)
     desenhar_paragrafo(pdf, RODAPE_TEXTO, RODAPE_MARGEM_MM * mm, y_rodape,
                        largura_util, fonte="Helvetica-Oblique",
                        tamanho=FONTE_RODAPE)
@@ -463,15 +488,13 @@ def executar_dry_run(args: argparse.Namespace, faixas_cfg: dict) -> int:
     return 0
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="Pré-exame Karate-Ashi v2.0 (multi-faixa)")
+    ap = argparse.ArgumentParser(description="Pré-exame Karate-Ashi v2.0 (multi-faixa)")
     ap.add_argument("--csv", required=True, type=Path)
     ap.add_argument("--dojo", required=True)
     ap.add_argument("--exame", required=True)
     ap.add_argument("--senseis", required=True,
                     help="IDs dos avaliadores separados por vírgula")
-    ap.add_argument("--cadastro", type=Path,
-                    default=Path("data/cadastro/alunos.json"))
+    ap.add_argument("--cadastro", type=Path, default=Path("data/cadastro/alunos.json"))
     ap.add_argument("--config", type=Path, default=Path("config"))
     ap.add_argument("--out", type=Path, default=Path("output/pre_exame"))
     ap.add_argument("--dry-run", action="store_true",
@@ -489,6 +512,8 @@ def main() -> int:
         faixa: carregar_coordenadas(args.config, faixa)
         for faixa in FAIXAS_SUPORTADAS
     }
+    dojos = carregar_nomes(args.config / "dojos.json")
+    avaliadores = carregar_nomes(args.config / "avaliadores.json")
 
     if args.dry_run:
         return executar_dry_run(args, faixas_cfg)
@@ -502,8 +527,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
         for sensei in [s.strip() for s in args.senseis.split(",")]:
-            pdf = canvas.Canvas(str(args.out / f"folhas_{sensei}.pdf"),
-                                pagesize=A4)
+            pdf = canvas.Canvas(str(args.out / f"folhas_{sensei}.pdf"), pagesize=A4)
             for aluno in todos:
                 if aluno["dojo_id"] != args.dojo:
                     continue
@@ -516,7 +540,7 @@ def main() -> int:
                 coords_out = coords_geradas.setdefault(faixa, {})
                 desenhar_folha(pdf, aluno, sensei, args.dojo, args.exame,
                                faixas_cfg[faixa], coordenadas_por_faixa[faixa],
-                               tmp_dir, coords_out)
+                               tmp_dir, coords_out, dojos, avaliadores)
                 gerados += 1
             pdf.save()
     for faixa, coords in coords_geradas.items():

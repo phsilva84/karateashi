@@ -25,6 +25,22 @@ from core.omr_reader import (
 
 LIMIARES = {"limiar_vazio_max": 0.05, "limiar_suspeito_max": 0.30}
 
+def _obs_rois():
+    """16 ROIs de observação válidas (contrato v2col-2.8: obs_p1..p8, obs_m1..m8).
+
+    y a partir de 230mm: fora da área de critérios (topo da folha) e dentro
+    da imagem sintética de teste (1050x1485px = 5px/mm).
+    """
+    return {f"obs_{p}{i}": {"x": 15.0, "y": 230.0 + i, "w": 4.5, "h": 4.5}
+            for p in ("p", "m") for i in range(1, 9)}
+
+def _coords_ok():
+    """Coordenadas completas: 4 quesitos + seção 'observacoes' (contrato novo)."""
+    coords = {q: {"c1": {"x": 10.0, "y": 10.0, "w": 5.0, "h": 5.0}}
+              for q in ["kihon", "kata", "bunkai", "kumite"]}
+    coords["observacoes"] = _obs_rois()
+    return coords
+
 # --- parse_payload_qr ------------------------------------------------------
 
 def test_parse_payload_qr_valido():
@@ -108,22 +124,34 @@ def test_validar_folha_branca():
 
 # --- _validar_coordenadas --------------------------------------------------
 
-def _coords_ok():
-    return {q: {"c1": {"x": 10.0, "y": 10.0, "w": 5.0, "h": 5.0}}
-            for q in ["kihon", "kata", "bunkai", "kumite"]}
-
 def test_validar_coordenadas_ok():
     _validar_coordenadas(_coords_ok(), "branca")  # não deve levantar
 
 def test_validar_coordenadas_zeradas():
     coords = {q: {"c1": {"x": 0.0, "y": 0.0, "w": 5.0, "h": 5.0}}
               for q in ["kihon", "kata", "bunkai", "kumite"]}
+    coords["observacoes"] = _obs_rois()
     with pytest.raises(ValueError, match="não calibradas"):
         _validar_coordenadas(coords, "branca")
 
 def test_validar_coordenadas_sem_quesito():
     coords = {"kihon": {"c1": {"x": 1.0, "y": 1.0, "w": 5.0, "h": 5.0}}}
+    coords["observacoes"] = _obs_rois()
     with pytest.raises(ValueError, match="sem o quesito"):
+        _validar_coordenadas(coords, "branca")
+
+def test_validar_coordenadas_sem_observacoes():
+    """Contrato novo: sem a seção 'observacoes', o leitor recusa o arquivo."""
+    coords = {q: {"c1": {"x": 10.0, "y": 10.0, "w": 5.0, "h": 5.0}}
+              for q in ["kihon", "kata", "bunkai", "kumite"]}
+    with pytest.raises(ValueError, match="sem a seção 'observacoes'"):
+        _validar_coordenadas(coords, "branca")
+
+def test_validar_coordenadas_obs_zeradas():
+    coords = {q: {"c1": {"x": 10.0, "y": 10.0, "w": 5.0, "h": 5.0}}
+              for q in ["kihon", "kata", "bunkai", "kumite"]}
+    coords["observacoes"] = {"obs_p1": {"x": 0.0, "y": 0.0, "w": 4.5, "h": 4.5}}
+    with pytest.raises(ValueError, match="não calibradas"):
         _validar_coordenadas(coords, "branca")
 
 # --- decodificar_qr (com pyzbar mockado) -----------------------------------
@@ -172,13 +200,15 @@ def _config_tmp(tmp_path):
                                              encoding="utf-8")
     coords = {q: {"c1": {"x": 10.0, "y": 10.0, "w": 70.0, "h": 10.0}}
               for q in ["kihon", "kata", "bunkai", "kumite"]}
+    coords["observacoes"] = _obs_rois()   # contrato novo: seção obrigatória
     (cfg / "coordenadas" / "branca.json").write_text(json.dumps(coords),
                                                      encoding="utf-8")
     return cfg
 
 def _folha_com_marcas() -> np.ndarray:
     """Folha A4 sintética 1050x1485 px (5 px/mm): 3 primeiros checkboxes
-    marcados na linha c1 (x=50..200, y=50..100)."""
+    marcados na linha c1 (x=50..200, y=50..100). A área de observações
+    (y>230mm) fica em branco."""
     img = np.full((1485, 1050, 3), 255, dtype=np.uint8)
     img[50:100, 50:200] = (0, 0, 0)  # células 1, 2 e 3 marcadas
     return img
@@ -198,6 +228,9 @@ def test_processar_imagem_ok(tmp_path, monkeypatch):
     assert resultado["aluno"]["id"] == "ALUNO3"
     for q in ["kihon", "kata", "bunkai", "kumite"]:
         assert resultado["avaliacoes"][q]["frequencias"]["c1"] == 3
+    # Contrato novo: observações estruturadas (folha sem marcações -> vazias)
+    assert resultado["observacoes_marcadas"] == []
+    assert resultado["observacao_montada"] == ""
 
 def test_processar_imagem_sem_qr(tmp_path, monkeypatch):
     cfg = _config_tmp(tmp_path)
