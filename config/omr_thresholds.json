@@ -1,0 +1,6 @@
+{
+  "versao": "1.0",
+  "limiar_vazio_max": 0.20,
+  "limiar_suspeito_max": 0.40,
+  "observacoes": "Valores da Fase 00: 0-20% vazio, 20-40% suspeito, >40% marcado."
+}

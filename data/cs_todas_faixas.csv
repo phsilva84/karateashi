@@ -1,0 +1,6 @@
+﻿id,nome,faixa_atual,faixa_pretendida,dojo_id
+A01,Teste Branca,Branca,Amarela,D01
+A04,Teste Amarela,Amarela,Laranja,D01
+A05,Teste Laranja,Laranja,Verde,D01
+A06,Teste Verde,Verde,Azul,D01
+A08,Teste Azul,Azul,Roxa,D01

@@ -1,0 +1,60 @@
+{
+  "versao_schema": "2.0.0",
+  "faixa": "verde",
+  "nao_suportada": false,
+  "quesitos": {
+    "kihon": {
+      "nome": "Kihon",
+      "pontos_base": 25.0,
+      "criterios": [
+        {"codigo": 1, "chave": "base_incorreta", "nome": "Base Incorreta", "peso": 1.0},
+        {"codigo": 2, "chave": "execucao_tecnica_incorreta", "nome": "Execução Técnica Incorreta", "peso": 1.0},
+        {"codigo": 3, "chave": "movimento_sem_carga", "nome": "Movimento sem Carga/Peso", "peso": 1.0},
+        {"codigo": 4, "chave": "falta_foco", "nome": "Falta de Foco", "peso": 1.0},
+        {"codigo": 5, "chave": "perda_equilibrio", "nome": "Perda de Equilíbrio", "peso": 1.0},
+        {"codigo": 6, "chave": "ausencia_kiai", "nome": "Ausência de Kiai", "peso": 0.5}
+      ]
+    },
+    "kata": {
+      "nome": "Kata",
+      "pontos_base": 25.0,
+      "criterios": [
+        {"codigo": 1, "chave": "embusen_incorreto", "nome": "Embusen Incorreto", "peso": 2.0},
+        {"codigo": 2, "chave": "base_incorreta", "nome": "Base Incorreta", "peso": 1.0},
+        {"codigo": 3, "chave": "falta_ritmo", "nome": "Falta de Ritmo", "peso": 0.5},
+        {"codigo": 4, "chave": "ausencia_kiai", "nome": "Ausência de Kiai", "peso": 0.5},
+        {"codigo": 5, "chave": "execucao_tecnica_incorreta", "nome": "Execução Técnica Incorreta", "peso": 1.0},
+        {"codigo": 6, "chave": "movimento_sem_carga", "nome": "Movimento sem Carga/Peso", "peso": 1.0},
+        {"codigo": 7, "chave": "falta_foco", "nome": "Falta de Foco", "peso": 1.0},
+        {"codigo": 8, "chave": "perda_equilibrio", "nome": "Perda de Equilíbrio", "peso": 1.0}
+      ]
+    },
+    "bunkai": {
+      "nome": "Bunkai",
+      "pontos_base": 25.0,
+      "criterios": [
+        {"codigo": 1, "chave": "base_incorreta", "nome": "Base Incorreta", "peso": 1.0},
+        {"codigo": 2, "chave": "ausencia_kiai", "nome": "Ausência de Kiai", "peso": 0.5},
+        {"codigo": 3, "chave": "execucao_tecnica_incorreta", "nome": "Execução Técnica Incorreta", "peso": 1.0},
+        {"codigo": 4, "chave": "movimento_sem_carga", "nome": "Movimento sem Carga/Peso", "peso": 1.0},
+        {"codigo": 5, "chave": "falta_foco", "nome": "Falta de Foco", "peso": 1.0},
+        {"codigo": 6, "chave": "perda_equilibrio", "nome": "Perda de Equilíbrio", "peso": 1.0},
+        {"codigo": 7, "chave": "distancia_inadequada", "nome": "Distância Inadequada", "peso": 1.0},
+        {"codigo": 8, "chave": "falta_controle", "nome": "Falta de Controle / Risco", "peso": 2.5}
+      ]
+    },
+    "kumite": {
+      "nome": "Kumite",
+      "pontos_base": 25.0,
+      "criterios": [
+        {"codigo": 1, "chave": "movimento_sem_carga", "nome": "Movimento sem Carga/Peso", "peso": 1.0},
+        {"codigo": 2, "chave": "falta_foco", "nome": "Falta de Foco", "peso": 1.0},
+        {"codigo": 3, "chave": "perda_equilibrio", "nome": "Perda de Equilíbrio", "peso": 1.0},
+        {"codigo": 4, "chave": "ausencia_kiai", "nome": "Ausência de Kiai", "peso": 0.5},
+        {"codigo": 5, "chave": "distancia_inadequada", "nome": "Distância Inadequada", "peso": 1.0},
+        {"codigo": 6, "chave": "falta_combatividade", "nome": "Falta de Combatividade", "peso": 2.0},
+        {"codigo": 7, "chave": "falta_controle", "nome": "Falta de Controle / Risco", "peso": 2.5}
+      ]
+    }
+  }
+}

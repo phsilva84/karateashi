@@ -1,0 +1,68 @@
+{
+  "alunos": [
+    {
+      "id": "A01",
+      "nome": "Isabelly",
+      "faixa_atual": "Branca",
+      "faixa_pretendida": "Amarela",
+      "dojo_id": "D01",
+      "novo": true
+    },
+    {
+      "id": "A02",
+      "nome": "Nicole",
+      "faixa_atual": "Branca",
+      "faixa_pretendida": "Amarela",
+      "dojo_id": "D01",
+      "novo": true
+    },
+    {
+      "id": "A03",
+      "nome": "Adriana",
+      "faixa_atual": "Branca",
+      "faixa_pretendida": "Amarela",
+      "dojo_id": "D01",
+      "novo": true
+    },
+    {
+      "id": "A04",
+      "nome": "Wesley",
+      "faixa_atual": "Amarela",
+      "faixa_pretendida": "Laranja",
+      "dojo_id": "D01",
+      "novo": true
+    },
+    {
+      "id": "A05",
+      "nome": "Daniel",
+      "faixa_atual": "Laranja",
+      "faixa_pretendida": "Verde",
+      "dojo_id": "D01",
+      "novo": true
+    },
+    {
+      "id": "A06",
+      "nome": "Saulo",
+      "faixa_atual": "Verde",
+      "faixa_pretendida": "Roxa",
+      "dojo_id": "D01",
+      "novo": true
+    },
+    {
+      "id": "A07",
+      "nome": "Marcos",
+      "faixa_atual": "Verde",
+      "faixa_pretendida": "Roxa",
+      "dojo_id": "D01",
+      "novo": true
+    },
+    {
+      "id": "A08",
+      "nome": "Teste Azul",
+      "faixa_atual": "Azul",
+      "faixa_pretendida": "Roxa",
+      "dojo_id": "D01",
+      "novo": true
+    }
+  ]
+}
