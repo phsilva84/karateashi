@@ -51,7 +51,7 @@ jobs:
       - name: Relatórios em 3 camadas (Fase 05)
         run: pytest tests/test_relatorios.py -q --cov=core.relatorios --cov-fail-under=80
       - name: Estrutura multi-faixa (Fase 06)
-        run: pytest tests/test_faixas.py -q --cov=core --cov-fail-under=80
+        run: pytest tests/test_faixas.py -q --cov=core.engine --cov-fail-under=80
 
   estresse:
     name: Testes de Estresse (Seção 14)
