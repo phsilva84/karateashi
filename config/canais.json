@@ -1,0 +1,14 @@
+{
+  "_comentario": "Preencha com os valores reais antes do 1º run. telegram_chat_id: use -100... para grupos/canais (obtenha via @userinfobot ou BotFather). drive_pasta: caminho no remote 'gdrive:' do RCLONE_CONF. Adicione um bloco por Dojo (D01, D02, ...).",
+  "dojos": {
+    "D01": {
+      "nome": "Dojo Central",
+      "telegram_chat_id": "-1000000000000",
+      "drive_pasta": "KarateAshi/Dojo01"
+    }
+  },
+  "mestres": {
+    "telegram_chat_id": "-1000000000001",
+    "drive_pasta": "KarateAshi/Mestres"
+  }
+}

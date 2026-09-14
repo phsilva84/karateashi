@@ -1,0 +1,103 @@
+name: Pipeline Karate-Ashi v2.0
+
+on:
+  schedule:
+    - cron: "0 22 * * *"   # ajustar conforme a rotina de exames do Dojo
+  workflow_dispatch:       # execução manual (testes e exames especiais)
+
+jobs:
+  # ── Job 1: baixa gabaritos e cadastros do Drive ─────────────────────
+  sincronizar-entrada:
+    name: Sincronizar Gabaritos e Cadastros (rclone)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+
+      - name: Pull gabaritos e cadastros do Drive
+        run: |
+          rclone copy "gdrive:KarateAshi/gabaritos" data/gabaritos/ --transfers 8
+          rclone copy "gdrive:KarateAshi/cadastro" data/cadastro/ --transfers 8
+
+      - name: Upload artefato de entrada
+        uses: actions/upload-artifact@v4
+        with:
+          name: dados-entrada
+          path: |
+            data/gabaritos/
+            data/cadastro/
+          if-no-files-found: warn
+
+  # ── Job 2: OMR → engine → relatórios (3 camadas, por Dojo) ─────────
+  processar-exame:
+    name: Processar Exame (OMR → Engine → Relatórios)
+    runs-on: ubuntu-latest
+    needs: sincronizar-entrada
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Baixar dados de entrada
+        uses: actions/download-artifact@v4
+        with:
+          name: dados-entrada
+
+      - name: Executar pipeline de processamento
+        run: python core/pipeline.py --config config --data data --output output
+
+      - name: Upload relatórios gerados
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorios
+          path: output/
+          if-no-files-found: error
+
+  # ── Job 3: Telegram (grupo do Dojo / canal dos Mestres) + Drive ─────
+  distribuir:
+    name: Distribuir Relatórios (Telegram + Drive)
+    runs-on: ubuntu-latest
+    needs: processar-exame
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Baixar relatórios
+        uses: actions/download-artifact@v4
+        with:
+          name: relatorios
+
+      - name: Configurar rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+
+      # Correção 2: estado de idempotência vem do Drive (persiste entre runs)
+      - name: Baixar estado de notificação do Drive
+        run: |
+          rclone copy "gdrive:KarateAshi/estado/.ka-notify-state.json" . --transfers 4 || true
+
+      - name: Enviar Telegram e sincronizar Drive
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: python core/notifications.py --output output --config config
+
+      # Correção 2: devolve o estado atualizado para o próximo run
+      - name: Persistir estado de notificação no Drive
+        run: |
+          rclone copy .ka-notify-state.json "gdrive:KarateAshi/estado" --transfers 4 || true
