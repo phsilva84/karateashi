@@ -1,7 +1,8 @@
 """tests/test_faixas.py — Fase 06: estrutura multi-faixa.
 
-Correção Fase 07: bloco adicional de cobertura do core.engine usando a
-lista de critérios A1–A12 validada no CI (mesma de tests/test_estresse.py).
+Fase 07: bloco adicional de cobertura do core.engine calibrado com a
+tabela real da faixa branca (config/faixas/branca.json) e as regras
+gerais (config/regras_gerais.json).
 """
 from __future__ import annotations
 
@@ -99,8 +100,6 @@ def test_trava_seguranca_bunkai(base_cfg: Path):
 
 # ---------------------------------------------------------------------------
 # BLOCO ADICIONAL — Cobertura do core.engine (Fase 07)
-# Alvos: descontos por critério, status REPROVADO, alertas de Kumite,
-# consenso com N=1/N=2 e carregamento das demais faixas.
 # ---------------------------------------------------------------------------
 
 def _avaliador_saturado() -> dict:
@@ -109,7 +108,7 @@ def _avaliador_saturado() -> dict:
     return _avaliador(**freqs)
 
 def test_processa_aluno_tem_descontos(base_cfg: Path):
-    """2x base_incorreta no Kihon → frequência 2 e nota abaixo de 25."""
+    """2x base_incorreta no Kihon → fc=2, mult=1,5 → desconto 3,0."""
     from core.engine import processa_aluno
 
     avs = [_avaliador(kihon={"base_incorreta": 2}) for _ in range(3)]
@@ -118,13 +117,42 @@ def test_processa_aluno_tem_descontos(base_cfg: Path):
     assert r["quesitos"]["kihon"]["nota"] < 25.0
 
 def test_processa_aluno_reprovado(base_cfg: Path):
-    """Saturação total → REPROVADO (ramo de status abaixo da nota mínima)."""
+    """Saturação total → nota 0,0 e REPROVADO."""
     from core.engine import processa_aluno
 
     avs = [_avaliador_saturado() for _ in range(3)]
     r = processa_aluno(avs, base_cfg, "branca")
     assert r["nota_final"] < 70.0
     assert r["status"] == "REPROVADO"
+
+def test_processa_aluno_recuperacao(base_cfg: Path):
+    """Nota 68,0 → status RECUPERACAO (60 ≤ nota < 70).
+
+    Fórmula real do engine: desconto = fc × peso × multiplicador
+    (regras_gerais.json: fc=2 → mult 1,5 | fc=1 → mult 1,0).
+    Desconto de 8,0 por quesito → 25 - 8 = 17,0 × 4 = 68,0.
+    Sem falta_controle → a trava de segurança não interfere.
+    """
+    from core.engine import processa_aluno
+
+    avs = [
+        _avaliador(
+            kihon={"base_incorreta": 2, "execucao_tecnica_incorreta": 2,
+                   "movimento_sem_carga": 1, "falta_foco": 1},
+            kata={"embusen_incorreto": 1, "base_incorreta": 1,
+                  "execucao_tecnica_incorreta": 1, "movimento_sem_carga": 1,
+                  "falta_foco": 1, "perda_equilibrio": 1,
+                  "falta_ritmo": 1, "ausencia_kiai": 1},
+            bunkai={"base_incorreta": 2, "execucao_tecnica_incorreta": 2,
+                    "movimento_sem_carga": 1, "falta_foco": 1},
+            kumite={"movimento_sem_carga": 2, "falta_foco": 2,
+                    "perda_equilibrio": 1, "distancia_inadequada": 1},
+        )
+        for _ in range(3)
+    ]
+    r = processa_aluno(avs, base_cfg, "branca")
+    assert r["status"] == "RECUPERACAO"
+    assert r["nota_final"] == 68.0
 
 def test_kumite_alerta_etico_um_de_tres(base_cfg: Path):
     """1 de 3 avaliadores marca falta de controle → ALERTA_ETICO (sem trava)."""
@@ -164,26 +192,36 @@ def test_sem_marcacoes_nas_demais_faixas(base_cfg: Path, faixa: str):
     assert r["faixa"] == faixa
     assert r["nota_final"] == 100.0
     assert r["status"] == "APROVADO"
-    
-def test_processa_aluno_recuperacao(base_cfg: Path):
-    """Nota intermediária (68,0) → status RECUPERAÇÃO (ramo do meio).
 
-    Tabela de descontos v2.0 (Códigos Técnicos A1–A12):
-    A5 embusen_incorreto = 2,0 | A1 base_incorreta = 1,0 | A6 falta_foco = 1,0
-    Com fc=2 em cada um: 2×2,0 + 2×1,0 + 2×1,0 = 8,0 de desconto por quesito
-    → 25 - 8 = 17,0 × 4 quesitos = 68,0 → faixa de RECUPERAÇÃO (60–70).
-    """
+def test_processa_aluno_deriva_faixa_do_bloco(base_cfg: Path):
+    """Sem faixa no chamador → deriva de aluno.faixa_atual."""
     from core.engine import processa_aluno
 
-    avs = [
-        _avaliador(
-            kihon={"embusen_incorreto": 2, "base_incorreta": 2, "falta_foco": 2},
-            kata={"embusen_incorreto": 2, "base_incorreta": 2, "falta_foco": 2},
-            bunkai={"embusen_incorreto": 2, "base_incorreta": 2, "falta_foco": 2},
-            kumite={"embusen_incorreto": 2, "base_incorreta": 2, "falta_foco": 2},
-        )
-        for _ in range(3)
-    ]
+    avs = [_avaliador() for _ in range(3)]
+    avs[0]["aluno"] = {"faixa_atual": "branca"}
+    r = processa_aluno(avs, base_cfg)  # sem o 3º argumento
+    assert r["faixa"] == "branca"
+    assert r["nota_final"] == 100.0
+
+def test_processa_aluno_revisao_pendente(base_cfg: Path):
+    """dados_legados → REVISAO_PENDENTE."""
+    from core.engine import processa_aluno
+
+    avs = [_avaliador() for _ in range(3)]
+    avs[0]["dados_legados"] = True
+    avs[0]["codigos_descartados"] = {"kihon": [9, 10]}
     r = processa_aluno(avs, base_cfg, "branca")
-    assert r["status"] == "RECUPERAÇÃO"
-    assert r["nota_final"] < 70.0
+    assert r["status"] == "REVISAO_PENDENTE"
+    assert r["dados_legados"] is True
+    assert r["alerta_legado"]["codigos_descartados"]["kihon"] == [9, 10]
+
+def test_processa_aluno_observacoes(base_cfg: Path):
+    """Observações por quesito e gerais são repassadas."""
+    from core.engine import processa_aluno
+
+    avs = [_avaliador() for _ in range(3)]
+    avs[0]["avaliacoes"]["kihon"]["observacao"] = "Chutes firmes"
+    avs[0]["observacao_geral"] = "Ótima evolução"
+    r = processa_aluno(avs, base_cfg, "branca")
+    assert "Chutes firmes" in r["observacoes"]["por_quesito"]["kihon"]
+    assert "Ótima evolução" in r["observacoes"]["gerais"]
