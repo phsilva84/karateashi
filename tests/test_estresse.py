@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from core.config import QUESITOS
 
 from core.engine import processa_aluno
 
@@ -18,10 +19,8 @@ CRITERIOS = [
     "falta_foco",                  # A6
     "perda_equilibrio",            # A7
     "falta_ritmo",                 # A8
-    "defesa_incompleta",           # A9
     "falta_controle",              # A10 (trava ética)
     "distancia_inadequada",        # A11
-    "tensao_respiracao",           # A12
 ]
 
 def _avaliacao_vazia(aluno_id: str = "A01") -> list[dict]:
@@ -31,7 +30,7 @@ def _avaliacao_vazia(aluno_id: str = "A01") -> list[dict]:
         {
             "avaliacoes": {
                 q: {"frequencias": dict(freq), "observacao": ""}
-                for q in ["kihon", "kata", "bunkai", "kumite"]
+                for q in QUESITOS
             }
         }
         for _ in range(3)

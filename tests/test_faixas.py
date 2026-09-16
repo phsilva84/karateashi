@@ -11,12 +11,19 @@ from pathlib import Path
 
 import pytest
 
-FAIXAS_SUPORTADAS = ["branca", "amarela", "laranja", "verde", "azul"]
-FAIXAS_PLACEHOLDER = ["roxa", "marrom", "preta"]
-QUESITOS = ["kihon", "kata", "bunkai", "kumite"]
+from core.config import (
+    FAIXAS_SUPORTADAS,
+    FAIXAS_PLACEHOLDER,
+    QUESITOS,
+)
 
 # Critérios técnicos A1–A12 (nomes normalizados aceitos pelo motor).
 # Mesma lista usada em tests/test_estresse.py — validada no CI.
+# Critérios vigentes no motor v2.0 (chaves semânticas das matrizes).
+# A9 (defesa_incompleta) e A12 (tensao_respiracao) foram EXTINTOS na v2.0 —
+# não constam de nenhuma matriz. A lista abaixo contém apenas critérios reais
+# (validade travada por test_criterios_motor_sem_fantasmas). Mesma lista
+# usada em tests/test_estresse.py — validada no CI.
 CRITERIOS_ENGINE = [
     "base_incorreta",              # A1
     "execucao_tecnica_incorreta",  # A2
@@ -26,10 +33,8 @@ CRITERIOS_ENGINE = [
     "falta_foco",                  # A6
     "perda_equilibrio",            # A7
     "falta_ritmo",                 # A8
-    "defesa_incompleta",           # A9
     "falta_controle",              # A10 (trava ética)
     "distancia_inadequada",        # A11
-    "tensao_respiracao",           # A12
 ]
 
 def _avaliador(**freqs):
@@ -225,3 +230,19 @@ def test_processa_aluno_observacoes(base_cfg: Path):
     r = processa_aluno(avs, base_cfg, "branca")
     assert "Chutes firmes" in r["observacoes"]["por_quesito"]["kihon"]
     assert "Ótima evolução" in r["observacoes"]["gerais"]
+    
+def test_criterios_motor_sem_fantasmas(base_cfg: Path):
+    """A lista de critérios do motor só pode conter chaves reais das matrizes
+    v2.0 — A9/A12 extintos não podem voltar como 'fantasmas'."""
+    cfg = json.loads(
+        (base_cfg / "faixas" / "branca.json").read_text(encoding="utf-8")
+    )
+    chaves_reais = {
+        c["chave"]
+        for q in cfg["quesitos"].values()
+        for c in q["criterios"]
+    }
+    for chave in CRITERIOS_ENGINE:
+        assert chave in chaves_reais, (
+            f"'{chave}' não existe nas matrizes v2.0 — critério fantasma?"
+        )
