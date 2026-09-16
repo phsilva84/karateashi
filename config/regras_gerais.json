@@ -14,5 +14,9 @@
   "status": {
     "aprovado_min": 70.0,
     "recuperacao_min": 60.0
+  },
+  "elogios": {
+    "criterio_transversal_min_quesitos": 2,
+    "destaque_geral_min": 85.0
   }
 }

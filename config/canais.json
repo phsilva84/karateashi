@@ -4,11 +4,11 @@
     "D01": {
       "nome": "Dojo Central",
       "telegram_chat_id": "-1000000000000",
-      "drive_pasta": "KarateAshi/Dojo01"
+      "drive_pasta": "gdrive:KarateAshi/Dojo01"
     }
   },
   "mestres": {
     "telegram_chat_id": "-1000000000001",
-    "drive_pasta": "KarateAshi/Mestres"
+    "drive_pasta": "gdrive:KarateAshi/Mestres"
   }
 }
