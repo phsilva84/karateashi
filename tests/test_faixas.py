@@ -246,3 +246,22 @@ def test_criterios_motor_sem_fantasmas(base_cfg: Path):
         assert chave in chaves_reais, (
             f"'{chave}' não existe nas matrizes v2.0 — critério fantasma?"
         )
+        
+def test_criterios_identicos_ate_azul(base_cfg: Path):
+    """Decisão de produto: da branca à azul, TODAS as faixas usam os MESMOS
+    critérios (matriz única, sem progressão nesta versão). Trava a regra —
+    se alguém editar uma matriz divergente, a suíte falha na hora."""
+    referencia = None
+    for faixa in FAIXAS_SUPORTADAS:
+        cfg = json.loads(
+            (base_cfg / "faixas" / f"{faixa}.json").read_text(encoding="utf-8"))
+        atuais = {
+            q: sorted(c["chave"] for c in cfg["quesitos"][q]["criterios"])
+            for q in QUESITOS
+        }
+        if referencia is None:
+            referencia = atuais
+            continue
+        assert atuais == referencia, (
+            f"{faixa} diverge dos critérios da branca — decisão de produto "
+            "determina critérios idênticos da branca à azul (pesos: roadmap)")

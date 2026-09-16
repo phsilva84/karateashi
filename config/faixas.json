@@ -1,0 +1,5 @@
+{
+  "suportadas": ["branca", "amarela", "laranja", "verde", "azul"],
+  "placeholder": ["roxa", "marrom", "preta"],
+  "_notas": "Indice canonico das faixas (Fase 4). 'suportadas' = faixas com matriz v2.0 (config/faixas/<faixa>.json); 'placeholder' = faixas com nao_suportada: true (sem coordenadas). core/config.py deriva FAIXAS_SUPORTADAS daqui quando o indice existe; sem ele, usa a lista embutida como fallback."
+}

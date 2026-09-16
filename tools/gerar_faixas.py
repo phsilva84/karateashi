@@ -25,8 +25,11 @@ import json
 import sys
 from pathlib import Path
 
-FAIXAS_SUPORTADAS = ["branca", "amarela", "laranja", "verde", "azul"]
-FAIXAS_PLACEHOLDER = ["roxa", "marrom", "preta"]
+# Garante a raiz do repositório no sys.path para execução standalone
+# (`python tools/gerar_faixas.py` roda com tools/ como base, não a raiz).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.config import FAIXAS_PLACEHOLDER, FAIXAS_SUPORTADAS  # fonte única (item 1 — Fase 4)
 
 def _carregar(caminho: Path) -> dict:
     if not caminho.exists():
