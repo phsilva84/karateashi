@@ -1,20 +1,5 @@
-"""core/relatorios.py — Relatórios em 3 camadas do Karate-Ashi v2.0.
-
-Camada 1: Individual (por aluno).
-Camada 2: Consolidado do Dojo (por exame) + Tendências.
-Camada 3: Master Multi-Dojo (estratégico, 4 Mestres).
-
-Inclui biblioteca de recomendações, elogios e regras de recorrência
-(50%/80% no Dojo; 50% entre Dojos). A saída é texto (para Telegram/relatório)
-e o resultado também fica disponível em JSON para o pipeline.
-
-Consome os resultados do motor (Fase 01): dict por aluno com
-"quesitos" -> {kihon|kata|bunkai|kumite} -> {"alerta", "detalhes"},
-onde "detalhes" mapeia a chave semântica do critério (ex.: "base_incorreta")
-para {"fc", "marcacoes", "nome"}.
-"""
+"""core/relatorios.py — Relatórios em 3 camadas do Karate-Ashi v2.0. Camada 1: Individual (por aluno). Camada 2: Consolidado do Dojo (por exame) + Tendências. Camada 3: Master Multi-Dojo (estratégico, 4 Mestres). Inclui biblioteca de recomendações, elogios e regras de recorrência (50%/80% no Dojo; 50% entre Dojos). A saída é texto (para Telegram/relatório) e o resultado também fica disponível em JSON para o pipeline. Consome os resultados do motor (Fase 01): dict por aluno com "quesitos" -> {kihon|kata|bunkai|kumite} -> {"alerta", "detalhes"}, onde "detalhes" mapeia a chave semântica do critério (ex.: "base_incorreta") para {"fc", "marcacoes", "nome"}. """
 from __future__ import annotations
-
 import json
 from pathlib import Path
 
@@ -77,9 +62,7 @@ def nivel_por_fc(fc: float) -> str:
 
 def nivel_recomendacao(fc: float, marcacoes: list[int], n_avaliadores: int) -> str:
     """Nível base por fc + saturação + ajustes por consenso/percepção isolada.
-
-    Saturação (7+ marcações de um mesmo avaliador) é sinal forte o bastante
-    para manter CRITICO mesmo com percepção isolada (1 de 3).
+    Saturação (7+ marcações de um mesmo avaliador) é sinal forte o bastante para manter CRITICO mesmo com percepção isolada (1 de 3).
     """
     saturado = any(m >= 7 for m in marcacoes)
     if saturado:
@@ -169,7 +152,14 @@ def relatorio_individual(resultado: dict, regras: dict, recomendacoes: dict, alu
 def consolidar_dojo(resultados_alunos: list[dict], regras: dict) -> dict:
     """Relatório 2 — agregações do Dojo (recorrência 50%/80%)."""
     n = len(resultados_alunos)
-    taxa = {"APROVADO": 0, "RECUPERACAO": 0, "REPROVADO": 0}
+    # Taxonomia quaternária: o parser emite REVISAO_PENDENTE para códigos
+    # descartados/anomalias em dados legados (não é erro de dado).
+    taxa = {
+        "APROVADO": 0,
+        "RECUPERACAO": 0,
+        "REPROVADO": 0,
+        "REVISAO_PENDENTE": 0,
+    }
     for r in resultados_alunos:
         taxa[r["status"]] += 1
     presenca_criterio: dict[tuple, int] = {}
@@ -205,7 +195,8 @@ def formatar_consolidado_dojo(consolidado: dict) -> str:
     linhas.append(f"Total de alunos avaliados: {consolidado['total_alunos']}")
     taxa = consolidado["taxa"]
     linhas.append(f"Taxa de status: Aprovado {taxa['APROVADO']}% | "
-                  f"Recuperação {taxa['RECUPERACAO']}% | Reprovado {taxa['REPROVADO']}%")
+                  f"Recuperação {taxa['RECUPERACAO']}% | Reprovado {taxa['REPROVADO']}% | "
+                  f"Revisão pendente {taxa['REVISAO_PENDENTE']}%")
     linhas.append(f"Foco do ciclo: {consolidado['foco_ciclo']} (pior média)")
     linhas.append("")
     linhas.append("PRIORIDADES DE TREINO:")
@@ -216,10 +207,8 @@ def formatar_consolidado_dojo(consolidado: dict) -> str:
 
 def relatorio_tendencias(resultados_alunos: list[dict], recomendacoes: dict) -> str:
     """Proposta de tendências: agregação em %, moda e narrativa por intensidade.
-
-    A intensidade narrativa reutiliza os níveis existentes (OBSERVACAO,
-    ATENCAO, CRITICO) via média de fc por critério — sem criar faixas de %
-    paralelas. Inclui exercício corretivo da biblioteca.
+    A intensidade narrativa reutiliza os níveis existentes (OBSERVACAO, ATENCAO, CRITICO) via média de fc por critério — sem criar faixas de % paralelas.
+    Inclui exercício corretivo da biblioteca.
     """
     n = len(resultados_alunos)
     if n == 0:
@@ -238,8 +227,8 @@ def relatorio_tendencias(resultados_alunos: list[dict], recomendacoes: dict) -> 
     linhas = ["RELATORIO DE TENDENCIAS", ""]
     linhas.append(f"Alunos considerados: {n}")
     linhas.append(f"Moda do exame: {NOME_QUESITO[moda[0]]} - "
-                  f"{NOME_CRITERIO.get(moda[1], moda[1])} "
-                  f"({presenca[moda]}/{n} alunos)")
+                 f"{NOME_CRITERIO.get(moda[1], moda[1])} "
+                 f"({presenca[moda]}/{n} alunos)")
     linhas.append("")
     linhas.append("CRITERIOS RECORRENTES (por intensidade):")
     for (quesito, chave), count in sorted(presenca.items(), key=lambda x: -x[1]):
@@ -250,7 +239,7 @@ def relatorio_tendencias(resultados_alunos: list[dict], recomendacoes: dict) -> 
                       f"{NOME_CRITERIO.get(chave, chave)} "
                       f"({count}/{n} alunos, média fc {media_fc:.1f})")
         if exercicio:
-            linhas.append(f"    Exercício corretivo: {exercicio}")
+            linhas.append(f" Exercício corretivo: {exercicio}")
     return "\n".join(linhas)
 
 def relatorio_master(resultados_dojos: list[dict], regras: dict, recomendacoes: dict) -> str:
@@ -271,28 +260,4 @@ def relatorio_master(resultados_dojos: list[dict], regras: dict, recomendacoes: 
         alunos = d.get("alunos", [])
         media = sum(r["nota_final"] for r in alunos) / len(alunos) if alunos else 0.0
         aprovados = sum(1 for r in alunos if r["status"] == "APROVADO")
-        taxa_aprov = aprovados / len(alunos) * 100 if alunos else 0.0
-        linhas.append(f"Dojo {d['dojo_id']}: média {media:.1f} | "
-                      f"aprovação {taxa_aprov:.0f}%")
-        anterior = d.get("media_anterior")
-        if anterior is not None and media < anterior:
-            linhas.append(f"  -> Alerta de acompanhamento: média caiu de "
-                          f"{anterior:.1f} para {media:.1f} (exame anterior).")
-    linhas.append("")
-    linhas.append("DIRETRIZES PEDAGOGICAS GLOBAIS (critério em 50%+ dos Dojos):")
-    if n_dojos and presenca_global:
-        diretrizes = sorted(
-            ((c, count) for c, count in presenca_global.items()
-             if count / n_dojos >= 0.5),
-            key=lambda x: -x[1],
-        )
-        if diretrizes:
-            for (quesito, chave), count in diretrizes:
-                linhas.append(f"- {NOME_QUESITO[quesito]} - "
-                              f"{NOME_CRITERIO.get(chave, chave)} "
-                              f"({count}/{n_dojos} Dojos): {recomendacoes.get(chave, '')}")
-        else:
-            linhas.append("- Nenhum critério atingiu 50% de recorrência entre Dojos.")
-    else:
-        linhas.append("- Sem dados suficientes.")
-    return "\n".join(linhas)
+        taxa_aprov = aprovados / len(alunos) * 100
