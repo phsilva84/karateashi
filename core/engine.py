@@ -1,30 +1,25 @@
-"""core/engine.py — Motor de cálculo do Karate-Ashi v2.0.
-
-Modelo híbrido progressivo:
+"""core/engine.py — Motor de cálculo do Karate-Ashi v2.0. Modelo híbrido progressivo:
 - frequência média por critério (média das marcações dos avaliadores);
 - multiplicador progressivo por faixa de frequência;
 - desconto = fc * peso * multiplicador;
 - nota do quesito = max(0; 25 - soma dos descontos);
 - trava de segurança por consenso (Bunkai/Kumite);
 - nota final e status.
-
 Fase 06 — multi-faixa:
-- a tabela de critérios passa a vir de config/faixas/<faixa>.json
-  (branca, amarela, laranja, verde e azul compartilham a tabela v2.0);
+- a tabela de critérios passa a vir de config/faixas/.json (branca, amarela, laranja, verde e azul compartilham a tabela v2.0);
 - roxa, marrom e preta são placeholders (nao_suportada: true);
-- processa_aluno recebe `faixa` (opcional; se ausente, deriva de
-  aluno.faixa_atual no primeiro bloco que a declarar).
-
+- processa_aluno recebe `faixa` (opcional; se ausente, deriva de aluno.faixa_atual no primeiro bloco que a declarar).
 Item 4 — dados legados:
-- se algum bloco do aluno tiver "dados_legados": true (códigos fora da
-  tabela v2.0 descartados pelo parser), o status vira REVISAO_PENDENTE:
-  código descartado = penalidade não aplicada = nota maior que a real.
-  A decisão automática nunca vale sobre nota inflada.
+- se algum bloco do aluno tiver "dados_legados": true (códigos fora da tabela v2.0 descartados pelo parser), o status vira REVISAO_PENDENTE: código descartado = penalidade não aplicada = nota maior que a real. A decisão automática nunca vale sobre nota inflada.
+RL-03 — precedência de arredondamento (Fase 3):
+- a nota final é arredondada para 1 casa ANTES de classificar o status;
+- o arredondamento é ROUND_HALF_UP com Decimal — NUNCA round() nativo do float, que por representação binária arredonda 69.95 para 69.9, jogando a fronteira de aprovação para o lado errado;
+- regra resultante: soma 69,95 ou 69,96 -> nota exibida 70,0 -> APROVADO; soma 69,94 -> 69,9 -> RECUPERACAO.
 """
-
 from __future__ import annotations
 
 import json
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
@@ -45,18 +40,17 @@ def carregar_json(caminho: Path) -> dict:
         raise ValueError(f"JSON inválido em {caminho}: {exc}") from exc
 
 def carregar_faixa(base_cfg: Path, faixa: str) -> dict:
-    """Carrega a tabela de critérios da faixa (config/faixas/<faixa>.json).
-
+    """Carrega a tabela de critérios da faixa (config/faixas/.json).
     Devolve o dict de quesitos (mesma forma do critérios_por_quesito.json).
     Levanta ValueError se o arquivo não existir ou a faixa for placeholder.
+    Normaliza a grafia da faixa (RL-04): 'Branca'/'BRANCA'/' branca ' resolvem
+    para o mesmo arquivo em disco, que é lower-case.
     """
     faixa = str(faixa or "").strip().lower()
     caminho = base_cfg / "faixas" / f"{faixa}.json"
     if not caminho.exists():
         raise ValueError(f"faixa '{faixa}' não possui arquivo de configuração")
-
     cfg = carregar_json(caminho)
-
     if cfg.get("nao_suportada", False):
         raise ValueError(
             f"faixa '{faixa}' não suportada nesta versão "
@@ -89,14 +83,13 @@ def consenso_controle(marcacoes_controle: list[int]) -> bool:
         return False
     return all(m >= 1 for m in marcacoes_controle)
 
-def nota_quesito(avaliacoes: list[dict], quesito: str,
-                 criterios_q: list[dict], regras: dict) -> dict:
+def nota_quesito(avaliacoes: list[dict], quesito: str, criterios_q: list[dict],
+                 regras: dict) -> dict:
     """Consolida um quesito entre avaliadores e devolve nota + detalhes."""
     total_desconto = 0.0
     detalhes: dict[str, Any] = {}
     controles: list[int] = []
     trava = regras["trava_seguranca"]
-
     for criterio in criterios_q:
         chave = criterio["chave"]
         marcacoes = [av["avaliacoes"][quesito]["frequencias"].get(chave, 0)
@@ -115,9 +108,7 @@ def nota_quesito(avaliacoes: list[dict], quesito: str,
         }
         if chave == trava["criterio"]:
             controles = marcacoes
-
     nota = round(max(0.0, NOTA_MAX_QUESITO - total_desconto), 2)
-
     if quesito in trava["quesitos"] and consenso_controle(controles):
         nota = min(nota, trava["teto"])
         alerta = "TRAVA_ATIVADA"
@@ -125,7 +116,6 @@ def nota_quesito(avaliacoes: list[dict], quesito: str,
         alerta = "ALERTA_ETICO"
     else:
         alerta = None
-
     return {
         "quesito": quesito,
         "nota": nota,
@@ -145,10 +135,9 @@ def classificar_status(nota_final: float, regras: dict) -> str:
 
 def _validar_entrada(avaliacoes: list[dict], faixa: str | None) -> None:
     """Recusa blocos ausentes ou incompletos antes de qualquer cálculo.
-
-    Sem isto, a ausência de dados zera a soma de descontos e o aluno sai
-    com nota 100.0 e APROVADO — sem erro. Falha de leitura nunca pode
-    virar aprovação máxima.
+    Sem isto, a ausência de dados zera a soma de descontos e o aluno sai com
+    nota 100.0 e APROVADO — sem erro. Falha de leitura nunca pode virar
+    aprovação máxima.
     """
     if avaliacoes is None:
         raise ValueError(
@@ -197,18 +186,15 @@ def _derivar_faixa(avaliacoes: list[dict]) -> str:
 def processa_aluno(avaliacoes: list[dict], base_cfg: Path,
                    faixa: str | None = None) -> dict:
     """Consolida os blocos dos avaliadores e devolve o resultado do aluno.
-
-    GUARD v2.0: recusa entrada vazia ou malformada. Ausência de dados
-    jamais produz nota máxima silenciosa. A faixa pode vir do chamador
-    ou ser derivada do primeiro bloco que a declarar (aluno.faixa_atual).
+    GUARD v2.0: recusa entrada vazia ou malformada. Ausência de dados jamais
+    produz nota máxima silenciosa. A faixa pode vir do chamador ou ser
+    derivada do primeiro bloco que a declarar (aluno.faixa_atual).
     """
     _validar_entrada(avaliacoes, faixa)
     if faixa is None:
         faixa = _derivar_faixa(avaliacoes)
-
     quesitos_cfg = carregar_faixa(base_cfg, faixa)
     regras = carregar_json(base_cfg / "regras_gerais.json")
-
     resultados = {}
     soma = 0.0
     for quesito in QUESTOS_ORDEM:
@@ -217,7 +203,16 @@ def processa_aluno(avaliacoes: list[dict], base_cfg: Path,
         resultados[quesito] = r
         soma += r["nota"]
 
-    nota_final = round(soma, 1)
+    # --- RL-03: precedência de arredondamento antes da classificação ---
+    # A norma define a nota final com 1 casa decimal e o status sobre ESSA
+    # nota. Decimal ROUND_HALF_UP evita o viés de ponto flutuante do round()
+    # nativo (round(69.95, 1) == 69.9 no float, mas 70.0 em aritmética
+    # decimal). Regra: soma >= 69.95 -> 70,0 -> APROVADO; 69.94 -> 69,9 ->
+    # RECUPERACAO.
+    nota_final = float(
+        Decimal(str(round(soma, 2))).quantize(
+            Decimal("0.1"), rounding=ROUND_HALF_UP)
+    )
     status_bruto = classificar_status(nota_final, regras)
 
     # --- Item 4: dados legados ---
@@ -226,7 +221,6 @@ def processa_aluno(avaliacoes: list[dict], base_cfg: Path,
     for av in blocos_legados:
         for quesito, codigos in av.get("codigos_descartados", {}).items():
             descartados.setdefault(quesito, []).extend(codigos)
-
     if blocos_legados:
         status = "REVISAO_PENDENTE"
         alerta_legado = {

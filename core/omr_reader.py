@@ -10,7 +10,7 @@ Pipeline:
 6. extrair as ROIs dos checkboxes (config/coordenadas/<faixa>.json);
 7. classificar densidade de pixels (omr_thresholds.json);
 8. validar (contiguidade, suspeitos, folha em branco, limite 7);
-9. gerar JSON intermediário schema v2.0.
+9. anular contradições de observação (v2col-3.0) e gerar JSON schema v2.0.
 
 Coordenadas:
 o JSON da faixa guarda x,y,w,h em MILÍMETROS, com origem no canto superior
@@ -35,12 +35,15 @@ Robustez para foto de celular (v2col-2.9):
 - Guarda de folha cortada: se o warp deixar área preta > 15% (região fora da
   foto), o leitor recusa com mensagem clara em vez de ler lixo.
 
-Observações estruturadas (Fase 04 v2col-2.8):
+Observações estruturadas (Fase 04 v2col-2.8) e contradições (v2col-3.0):
 - A observação nasce na FOLHA como checkboxes (obs_p1..p8 'Ótimo!' e
   obs_m1..m8 'A Melhorar'), lidos AQUI na mesma passada dos códigos de erro.
-- As ROIs ficam na seção 'observacoes' do config/coordenadas/<faixa>.json.
-- O leitor grava resultado['observacoes_marcadas'] e core/observacoes.py
-  monta resultado['observacao_montada'] (texto legível).
+- Regra de contradição: se o MESMO avaliador (uma folha) marca o par
+  contraditório ('Ótimo!' + 'A melhorar' oposto), as DUAS são anuladas e a
+  contradição é registrada em resultado['contradicoes_observacoes'] para o
+  mestre refinar com o avaliador no relatório geral.
+- O vocabulário dos pares é data-driven (config/observacoes_contradicoes.json
+  via core/contradicoes.py) — o mestre ajusta sem tocar no código.
 
 Correção Fase 07: import do pyzbar movido para DENTRO de decodificar_qr()
 (lazy import). O pyzbar depende da biblioteca nativa libzbar0, ausente no
@@ -302,18 +305,23 @@ def localizar_qr(imagem: np.ndarray) -> tuple[np.ndarray, str] | None:
     return None
 
 def _template_fiducial(escala_px_mm: float) -> np.ndarray:
-    """Template da cruz de registro (cruz + quadrado central), na escala."""
+    """Template da cruz de registro (cruz + quadrado central), na escala.
+
+    A cruz é impressa PRETA sobre papel branco — o template reproduz a mesma
+    polaridade (cruz escura 0 em fundo claro 255) para casar com o
+    TM_CCOEFF_NORMED.
+    """
     braco = max(4, int(round(3.0 * escala_px_mm)))
     esp = max(1, int(round(0.3 * escala_px_mm)))
     tam = braco * 2 + 1
-    t = np.zeros((tam, tam), dtype=np.uint8)
+    t = np.full((tam, tam), 255, dtype=np.uint8)   # fundo branco
     c = tam // 2
-    t[c - esp:c + esp + 1, :] = 255
-    t[:, c - esp:c + esp + 1] = 255
-    t[c - braco:c + braco + 1, c - braco:c - braco + esp + 1] = 255
-    t[c - braco:c + braco + 1, c + braco - esp:c + braco + 1] = 255
-    t[c - braco:c - braco + esp + 1, c - braco:c + braco + 1] = 255
-    t[c + braco - esp:c + braco + 1, c - braco:c + braco + 1] = 255
+    t[c - esp:c + esp + 1, :] = 0
+    t[:, c - esp:c + esp + 1] = 0
+    t[c - braco:c + braco + 1, c - braco:c - braco + esp + 1] = 0
+    t[c - braco:c + braco + 1, c + braco - esp:c + braco + 1] = 0
+    t[c - braco:c - braco + esp + 1, c - braco:c + braco + 1] = 0
+    t[c + braco - esp:c + braco + 1, c - braco:c + braco + 1] = 0
     return t
 
 def _detectar_fiducial(imagem: np.ndarray, centro_predito: np.ndarray,
@@ -575,7 +583,9 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
     pixels pelo tamanho real da imagem alinhada. As observações estruturadas
     (seção 'observacoes') são lidas na mesma passada dos códigos de erro e
     devolvidas como 'observacoes_marcadas'; core/observacoes.py monta o texto
-    legível em 'observacao_montada'.
+    legível em 'observacao_montada'. Contradições (v2col-3.0) anulam pares
+    Ótimo/A melhorar do mesmo avaliador e são registradas em
+    'contradicoes_observacoes' para o relatório geral.
     """
     limiares = carregar_json(base_cfg / "omr_thresholds.json")
     coordenadas = carregar_json(base_cfg / "coordenadas" / f"{faixa}.json")
@@ -635,8 +645,10 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
     if erros:
         raise ValueError("; ".join(erros))
 
+    # ------------------------------------------------------------------
     # Observações estruturadas (Fase 04 v2col-2.8): cada ROI da seção
     # 'observacoes' é um checkbox individual (obs_p1..p8, obs_m1..m8).
+    # ------------------------------------------------------------------
     marcadas: list[str] = []
     avisos_obs: list[str] = []
     for chave, roi_mm in coordenadas.get("observacoes", {}).items():
@@ -653,6 +665,16 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
         elif classe == "suspeito":
             avisos_obs.append(f"{chave} suspeita — revisão manual")
 
+    # ------------------------------------------------------------------
+    # Contradições (v2col-3.0): par Ótimo/A melhorar do MESMO avaliador.
+    # As duas observações são anuladas e a contradição vai ao relatório.
+    # IMPORTA: precisa rodar ANTES do merge_no_json (o texto motado já
+    # sai sem as observações anuladas).
+    # ------------------------------------------------------------------
+    from core import contradicoes as mod_contradicoes
+    pares = mod_contradicoes.carregar_pares(base_cfg)
+    marcadas, lista_contradicoes = mod_contradicoes.detectar(marcadas, pares)
+
     resultado = {
         "metadados": metadados,
         "aluno": {"id": metadados["aluno_id"], "faixa_atual": metadados["faixa"]},
@@ -665,6 +687,8 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
     }
     if avisos_obs:
         resultado["avisos_observacoes"] = avisos_obs
+    if lista_contradicoes:
+        resultado["contradicoes_observacoes"] = lista_contradicoes
 
     # Observação legível do relatório: as chaves marcadas viram texto via
     # core/observacoes.py (vocabulário oficial — folha e relatório gêmeos).
