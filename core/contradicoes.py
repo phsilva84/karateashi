@@ -30,12 +30,27 @@ PARES_PADRAO = [
 VOCAB = {**observacoes.OBS_POSITIVAS, **observacoes.OBS_MELHORAR}
 
 def carregar_pares(base_cfg: Path) -> list[dict]:
+    """União dos pares padrão com os customizados (item 7 — Fase 3).
+
+    Antes, o JSON custom SUBSTITUÍA os pares padrão: bastava o mestre criar
+    um par novo e os padrão sumiam do relatório. Agora é união (set union):
+    - o custom pode ADICIONAR pares novos;
+    - se redefinir um par com as MESMAS chaves (otimo/melhorar), a versão
+      custom prevalece (sem duplicar);
+    - os padrão não citados no custom continuam valendo.
+    A deduplicação usa a chave (otimo, melhorar) — identidade funcional.
+    """
+    pares_por_chave: dict[tuple[str, str], dict] = {
+        (p.get("otimo"), p.get("melhorar")): p for p in PARES_PADRAO
+    }
     caminho = base_cfg / "observacoes_contradicoes.json"
-    if not caminho.exists():
-        log.info("sem %s — usando pares padrão", caminho)
-        return PARES_PADRAO
-    with open(caminho, encoding="utf-8") as fh:
-        return json.load(fh).get("pares", PARES_PADRAO)
+    if caminho.exists():
+        with open(caminho, encoding="utf-8") as fh:
+            custom = json.load(fh).get("pares", [])
+        for par in custom:
+            chave = (par.get("otimo"), par.get("melhorar"))
+            pares_por_chave[chave] = par  # custom redefine a mesma chave, se houver
+    return list(pares_por_chave.values())
 
 def detectar(marcadas: list[str], pares: list[dict]) -> tuple[list[str], list[dict]]:
     """Anula pares contraditórios e devolve (limpas, contradicoes)."""

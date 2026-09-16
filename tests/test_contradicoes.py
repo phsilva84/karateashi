@@ -83,10 +83,21 @@ def test_carregar_pares_sem_arquivo_usa_padrao(tmp_path):
     assert carregar_pares(tmp_path) == PARES_PADRAO
 
 def test_carregar_pares_le_do_config(tmp_path):
+    """Fase 3 (item 7): JSON custom SOMA aos pares padrão (união).
+
+    Um par novo sem colisão com os padrão é ADICIONADO; nenhum padrão
+    some do relatório. Ex.: custom (obs_p1, obs_m1) não colide com
+    nenhum padrão -> resultado tem len(PARES_PADRAO) + 1.
+    """
     pares = [{"topico": "custom", "otimo": "obs_p1", "melhorar": "obs_m1"}]
     (tmp_path / "observacoes_contradicoes.json").write_text(
         json.dumps({"pares": pares}), encoding="utf-8")
-    assert carregar_pares(tmp_path) == pares
+    resultado = carregar_pares(tmp_path)
+    chaves = {(p["otimo"], p["melhorar"]) for p in resultado}
+    assert len(resultado) == len(PARES_PADRAO) + 1
+    assert ("obs_p1", "obs_m1") in chaves  # custom presente
+    for p in PARES_PADRAO:                  # padrão continuam todos
+        assert (p["otimo"], p["melhorar"]) in chaves
 
 def test_carregar_pares_json_sem_campo_pares_usa_padrao(tmp_path):
     (tmp_path / "observacoes_contradicoes.json").write_text(
