@@ -1,8 +1,6 @@
-pandas
-streamlit
-fpdf2
-pathlib
+# Runtime do pipeline v2.0 (Karate-Ashi)
 opencv-python
 numpy
 pyzbar
-pillow
+Pillow
+pypdfium2

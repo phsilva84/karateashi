@@ -5,46 +5,60 @@
 - nota do quesito = max(0; 25 - soma dos descontos);
 - trava de segurança por consenso (Bunkai/Kumite);
 - nota final e status.
+
 Fase 06 — multi-faixa:
-- a tabela de critérios passa a vir de config/faixas/.json (branca, amarela, laranja, verde e azul compartilham a tabela v2.0);
+- a tabela de critérios passa a vir de config/faixas/<faixa>.json (branca,
+  amarela, laranja, verde e azul compartilham a tabela v2.0);
 - roxa, marrom e preta são placeholders (nao_suportada: true);
-- processa_aluno recebe `faixa` (opcional; se ausente, deriva de aluno.faixa_atual no primeiro bloco que a declarar).
+- processa_aluno recebe `faixa` (opcional; se ausente, deriva de
+  aluno.faixa_atual no primeiro bloco que a declarar).
+
 Item 4 — dados legados:
-- se algum bloco do aluno tiver "dados_legados": true (códigos fora da tabela v2.0 descartados pelo parser), o status vira REVISAO_PENDENTE: código descartado = penalidade não aplicada = nota maior que a real. A decisão automática nunca vale sobre nota inflada.
+- se algum bloco do aluno tiver "dados_legados": true (códigos fora da tabela
+  v2.0 descartados pelo parser), o status vira REVISAO_PENDENTE: código
+  descartado = penalidade não aplicada = nota maior que a real. A decisão
+  automática nunca vale sobre nota inflada.
+
 RL-03 — precedência de arredondamento (Fase 3):
-- a nota final é arredondada para 1 casa ANTES de classificar o status;
-- o arredondamento é ROUND_HALF_UP com Decimal — NUNCA round() nativo do float, que por representação binária arredonda 69.95 para 69.9, jogando a fronteira de aprovação para o lado errado;
-- regra resultante: soma 69,95 ou 69,96 -> nota exibida 70,0 -> APROVADO; soma 69,94 -> 69,9 -> RECUPERACAO.
+- a nota final é arredondada para 1 casa decimal ANTES de classificar o status;
+- o arredondamento é ROUND_HALF_UP com Decimal — NUNCA round() nativo do
+  float, que por representação binária pode arredondar 69.95 para 69.9,
+  jogando a fronteira de aprovação para o lado errado;
+- regra resultante: soma 69,95 ou 69,96 -> nota exibida 70,0 -> APROVADO;
+  soma 69,94 -> 69,9 -> RECUPERACAO.
+
+RL-04 — normalização de faixa (Fase 3):
+- carregar_faixa normaliza com .strip().lower(): 'Branca'/'BRANCA'/' branca '
+  resolvem para o mesmo arquivo em disco (lower-case), sem FileNotFoundError
+  no Linux do GitHub Actions.
+
+Fase 4 — centralização:
+- carregar_json, QUESITOS e FAIXAS_SUPORTADAS vêm de core.config (fonte única);
+- a função carregar_json local foi removida; QUESTOS_ORDEM permanece como
+  alias legado para QUESITOS.
 """
 from __future__ import annotations
 
-import json
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
-from core.omr_reader import QUESITOS
+from core.config import (
+    FAIXAS_SUPORTADAS,
+    QUESITOS,
+    carregar_json,
+)
 
-QUESTOS_ORDEM = ["kihon", "kata", "bunkai", "kumite"]
+QUESTOS_ORDEM = QUESITOS  # alias legado (Fase 4) — fonte única em core.config
 NOTA_MAX_QUESITO = 25.0
-FAIXAS_SUPORTADAS = ["branca", "amarela", "laranja", "verde", "azul"]
-
-def carregar_json(caminho: Path) -> dict:
-    """Lê um JSON de configuração. Falha com mensagem clara se inválido."""
-    try:
-        with open(caminho, "r", encoding="utf-8") as fh:
-            return json.load(fh)
-    except FileNotFoundError as exc:
-        raise FileNotFoundError(f"Configuração não encontrada: {caminho}") from exc
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"JSON inválido em {caminho}: {exc}") from exc
 
 def carregar_faixa(base_cfg: Path, faixa: str) -> dict:
-    """Carrega a tabela de critérios da faixa (config/faixas/.json).
+    """Carrega a tabela de critérios da faixa (config/faixas/<faixa>.json).
+
     Devolve o dict de quesitos (mesma forma do critérios_por_quesito.json).
     Levanta ValueError se o arquivo não existir ou a faixa for placeholder.
-    Normaliza a grafia da faixa (RL-04): 'Branca'/'BRANCA'/' branca ' resolvem
-    para o mesmo arquivo em disco, que é lower-case.
+
+    RL-04: normaliza a grafia da faixa antes de resolver o arquivo.
     """
     faixa = str(faixa or "").strip().lower()
     caminho = base_cfg / "faixas" / f"{faixa}.json"
@@ -135,6 +149,7 @@ def classificar_status(nota_final: float, regras: dict) -> str:
 
 def _validar_entrada(avaliacoes: list[dict], faixa: str | None) -> None:
     """Recusa blocos ausentes ou incompletos antes de qualquer cálculo.
+
     Sem isto, a ausência de dados zera a soma de descontos e o aluno sai com
     nota 100.0 e APROVADO — sem erro. Falha de leitura nunca pode virar
     aprovação máxima.
@@ -186,6 +201,7 @@ def _derivar_faixa(avaliacoes: list[dict]) -> str:
 def processa_aluno(avaliacoes: list[dict], base_cfg: Path,
                    faixa: str | None = None) -> dict:
     """Consolida os blocos dos avaliadores e devolve o resultado do aluno.
+
     GUARD v2.0: recusa entrada vazia ou malformada. Ausência de dados jamais
     produz nota máxima silenciosa. A faixa pode vir do chamador ou ser
     derivada do primeiro bloco que a declarar (aluno.faixa_atual).

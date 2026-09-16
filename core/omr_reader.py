@@ -1,5 +1,4 @@
 """core/omr_reader.py — Leitura OMR dos gabaritos Karate-Ashi v2.0.
-
 Pipeline:
 1. carregar imagem (foto de celular ou scanner);
 2. decodificar o QR Code na foto ORIGINAL (antes de qualquer alinhamento);
@@ -11,7 +10,6 @@ Pipeline:
 7. classificar densidade de pixels (omr_thresholds.json);
 8. validar (contiguidade, suspeitos, folha em branco, limite 7);
 9. anular contradições de observação (v2col-3.0) e gerar JSON schema v2.0.
-
 Coordenadas:
 o JSON da faixa guarda x,y,w,h em MILÍMETROS, com origem no canto superior
 esquerdo da folha A4. O leitor converte para pixels usando o tamanho real da
@@ -19,7 +17,6 @@ imagem já alinhada — por isso a mesma coordenada vale para qualquer resoluç�
 de foto ou scanner. O gerador é o tools/pre_exame.py (folha e leitor gêmeos
 por construção); coordenadas não calibradas (tudo zero) são rejeitadas com
 mensagem clara, em vez de produzir nota vazia.
-
 Robustez para foto de celular (v2col-2.9):
 - O QR é decodificado PRIMEIRO na foto original. Se o recorte de perspectiva
   sair errado, o QR da foto crua ainda é lido.
@@ -34,7 +31,6 @@ Robustez para foto de celular (v2col-2.9):
   QR antes de desistir.
 - Guarda de folha cortada: se o warp deixar área preta > 15% (região fora da
   foto), o leitor recusa com mensagem clara em vez de ler lixo.
-
 Observações estruturadas (Fase 04 v2col-2.8) e contradições (v2col-3.0):
 - A observação nasce na FOLHA como checkboxes (obs_p1..p8 'Ótimo!' e
   obs_m1..m8 'A Melhorar'), lidos AQUI na mesma passada dos códigos de erro.
@@ -44,16 +40,23 @@ Observações estruturadas (Fase 04 v2col-2.8) e contradições (v2col-3.0):
   mestre refinar com o avaliador no relatório geral.
 - O vocabulário dos pares é data-driven (config/observacoes_contradicoes.json
   via core/contradicoes.py) — o mestre ajusta sem tocar no código.
-
 Correção Fase 07: import do pyzbar movido para DENTRO de decodificar_qr()
 (lazy import). O pyzbar depende da biblioteca nativa libzbar0, ausente no
 runner ubuntu-latest do GitHub Actions. Com o import local, as funções puras
 não dependem da lib nativa e o módulo importa sem quebrar em qualquer
 ambiente.
+RL-02 (Fase 3): checkbox 'suspeito' não entra na frequência (viés
+permissivo), mas agora é exposto em 'tem_suspeito'/'suspeitos' e agregado em
+resultado['auditoria_visual'] — nunca mais silencioso.
+RL-04 (Fase 3): faixa normalizada com .strip().lower() na resolução do
+arquivo de coordenadas e na validação cruzada com o QR.
+Fase 4 — centralização:
+- QUESITOS e carregar_json vêm de core.config (fonte única);
+- a função carregar_json local foi removida — o módulo passa a usar a versão
+  central, que tem mensagens de erro claras em JSON inválido.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +66,7 @@ import numpy as np
 # NOTA: NÃO importar pyzbar aqui no topo.
 # O import acontece dentro de decodificar_qr() e localizar_qr().
 
-QUESITOS = ["kihon", "kata", "bunkai", "kumite"]
+from core.config import QUESITOS, carregar_json  # fonte única (Fase 4)
 
 # Dimensões A4 em mm — base da conversão mm -> px das coordenadas.
 LARGURA_A4_MM = 210.0
@@ -88,15 +91,9 @@ _RAZAO_A4_MAX = 0.85
 _LADO_MIN_PX = 50
 _FRACAO_PRETA_MAX = 0.15         # guarda de folha cortada no warp
 
-def carregar_json(caminho: Path) -> dict:
-    with open(caminho, "r", encoding="utf-8") as fh:
-        return json.load(fh)
-
 # --- QR Code ---------------------------------------------------------------
-
 def variantes_qr(imagem: np.ndarray) -> list[np.ndarray]:
     """Variantes de pré-processamento para o leitor de QR.
-
     Foto de celular falha por escala/contraste/foco; tentar a imagem crua,
     em cinza, reescalada, nítida e binarizada multiplica as chances.
     """
@@ -129,7 +126,6 @@ def variantes_qr(imagem: np.ndarray) -> list[np.ndarray]:
 
 def decodificar_qr(imagem: np.ndarray) -> str | None:
     """Decodifica o primeiro QR encontrado; devolve o texto ou None.
-
     Ordem: leitor nativo do OpenCV (não depende da libzbar) e, em seguida,
     pyzbar sobre as variantes pré-processadas. O import do pyzbar segue
     local — correção Fase 07.
@@ -141,12 +137,10 @@ def decodificar_qr(imagem: np.ndarray) -> str | None:
             return dados
     except Exception:  # noqa: BLE001 — cv2 pode falhar em imagens ruins
         pass
-
     try:
         from pyzbar.pyzbar import decode  # import local — correção Fase 07
     except Exception:  # noqa: BLE001 — libzbar0 ausente
         return None
-
     for variante in variantes_qr(imagem):
         try:
             simbolos = decode(variante)
@@ -173,7 +167,6 @@ def parse_payload_qr(payload: str) -> dict:
     }
 
 # --- Detecção e correção de perspectiva ------------------------------------
-
 def binarizacoes(cinza: np.ndarray) -> list[np.ndarray]:
     """Três binarizações complementares (folha clara/escura/baixo contraste)."""
     blur = cv2.GaussianBlur(cinza, (5, 5), 0)
@@ -245,10 +238,8 @@ def _warp(imagem: np.ndarray, ordem: np.ndarray) -> np.ndarray:
     return cv2.warpPerspective(imagem, matriz, (largura, altura))
 
 # --- Âncora QR + fiduciais (fallback) --------------------------------------
-
 def _pontos_mm_qr() -> np.ndarray:
     """Cantos do QR em mm, origem no topo-esquerda da página A4.
-
     Desenhado pelo tools/pre_exame.py no canto superior direito, com
     QR_LADO_MM=22 e QR_MARGEM_MM=10 (margem do topo e da direita).
     """
@@ -263,7 +254,6 @@ def _pontos_mm_qr() -> np.ndarray:
 
 def _pontos_mm_fiduciais() -> np.ndarray:
     """Centros das cruzes de registro em mm (origem topo-esquerda).
-
     Três cantos (TL, BR, BL) — o QR no canto superior direito é a 4ª
     referência. Desenhados por desenhar_marcadores_fiduciais().
     """
@@ -276,7 +266,6 @@ def _pontos_mm_fiduciais() -> np.ndarray:
 
 def localizar_qr(imagem: np.ndarray) -> tuple[np.ndarray, str] | None:
     """Localiza o QR na imagem e devolve (pontos_px_ordenados, dados).
-
     O detector nativo do OpenCV (cv2.QRCodeDetector) falha em foto de
     celular; o pyzbar decodifica e devolve o polígono do QR — é ele que
     alimenta a âncora do warp.
@@ -306,7 +295,6 @@ def localizar_qr(imagem: np.ndarray) -> tuple[np.ndarray, str] | None:
 
 def _template_fiducial(escala_px_mm: float) -> np.ndarray:
     """Template da cruz de registro (cruz + quadrado central), na escala.
-
     A cruz é impressa PRETA sobre papel branco — o template reproduz a mesma
     polaridade (cruz escura 0 em fundo claro 255) para casar com o
     TM_CCOEFF_NORMED.
@@ -327,7 +315,6 @@ def _template_fiducial(escala_px_mm: float) -> np.ndarray:
 def _detectar_fiducial(imagem: np.ndarray, centro_predito: np.ndarray,
                        escala_px_mm: float) -> np.ndarray | None:
     """Procura a cruz de registro perto do centro previsto (template match).
-
     Só aceita cruz com score alto E próxima da previsão — o match frouxo
     gerava falsos positivos que corrompiam a homografia.
     """
@@ -367,7 +354,6 @@ def _quad_folha_plausivel(cantos: np.ndarray) -> bool:
 
 def warp_pela_ancora(imagem: np.ndarray, pontos_qr_px: np.ndarray) -> np.ndarray:
     """Warp da folha usando o QR + cruzes de registro como âncoras.
-
     O QR dá a homografia base (exata pelos 4 cantos detectados). As cruzes
     só refinam se passarem na validação; a refinada é aceita apenas se
     continuar respeitando a posição do QR. Se nada for plausível, cai para
@@ -377,13 +363,11 @@ def warp_pela_ancora(imagem: np.ndarray, pontos_qr_px: np.ndarray) -> np.ndarray
     H_qr, _ = cv2.findHomography(_pontos_mm_qr(), pontos_qr_px)
     if H_qr is None:
         raise ValueError("não foi possível estimar a homografia do QR")
-
     escala = float(np.linalg.norm(pontos_qr_px[1] - pontos_qr_px[0])) / _QR_LADO_MM
     pagina_mm = np.array([[0, 0], [LARGURA_A4_MM, 0],
                           [LARGURA_A4_MM, ALTURA_A4_MM], [0, ALTURA_A4_MM]],
                          dtype="float32")
     pagina_rs = pagina_mm.reshape(-1, 1, 2)
-
     # Refino com fiduciais validados
     mm_pts = list(_pontos_mm_qr())
     px_pts = [tuple(p) for p in pontos_qr_px]
@@ -394,7 +378,6 @@ def warp_pela_ancora(imagem: np.ndarray, pontos_qr_px: np.ndarray) -> np.ndarray
         if centro is not None:
             mm_pts.append(mm_pt)
             px_pts.append(tuple(centro))
-
     H_refinada = None
     if len(mm_pts) > 4:
         H_refinada, _ = cv2.findHomography(
@@ -406,14 +389,12 @@ def warp_pela_ancora(imagem: np.ndarray, pontos_qr_px: np.ndarray) -> np.ndarray
             erro = float(np.mean(np.linalg.norm(qr_prev - pontos_qr_px, axis=1)))
             if erro > _QR_ERRO_MAX_FRACAO * _QR_LADO_MM * escala:
                 H_refinada = None
-
     for H in (H_refinada, H_qr):
         if H is None:
             continue
         cantos = cv2.perspectiveTransform(pagina_rs, H).reshape(-1, 2)
         if _quad_folha_plausivel(cantos):
             return _warp(imagem, _ordenar_cantos(cantos))
-
     raise ValueError("não foi possível estimar a folha pelas âncoras "
                      "(QR/fiduciais) — refaça a foto com a folha inteira "
                      "e boa luz")
@@ -425,7 +406,6 @@ def _fracao_preta(imagem: np.ndarray) -> float:
 
 def detectar_e_corrigir(imagem: np.ndarray) -> np.ndarray:
     """Detecta a folha e corrige a perspectiva (robusto p/ foto de celular).
-
     Estratégia:
     1. reduz a imagem p/ detecção (velocidade e menos ruído);
     2. binariza por três vias — cobre folha clara s/ fundo escuro e vice-versa;
@@ -437,7 +417,6 @@ def detectar_e_corrigir(imagem: np.ndarray) -> np.ndarray:
     """
     if imagem is None or imagem.size == 0:
         raise ValueError("imagem vazia")
-
     escala = min(1.0, _LADO_DETECCAO_PX / max(imagem.shape[:2]))
     pequena = (cv2.resize(imagem, None, fx=escala, fy=escala,
                           interpolation=cv2.INTER_AREA)
@@ -446,12 +425,10 @@ def detectar_e_corrigir(imagem: np.ndarray) -> np.ndarray:
     altura, largura = cinza.shape[:2]
     area_img = float(altura * largura)
     margem = _MARGEM_BORDA * min(altura, largura)
-
     melhor: np.ndarray | None = None
     melhor_score = 0.0
     houve_forma = False
     forma_pts = 0
-
     for binaria in binarizacoes(cinza):
         contornos, _ = cv2.findContours(binaria, cv2.RETR_EXTERNAL,
                                         cv2.CHAIN_APPROX_SIMPLE)
@@ -475,7 +452,6 @@ def detectar_e_corrigir(imagem: np.ndarray) -> np.ndarray:
             if score > melhor_score:
                 melhor_score = score
                 melhor = quad
-
     if melhor is None:
         # Fallback: folha cortada na foto ou fundo claro fundindo com o
         # papel — usa o QR + cruzes de registro como âncoras do warp.
@@ -489,13 +465,11 @@ def detectar_e_corrigir(imagem: np.ndarray) -> np.ndarray:
                 f"enquadre a folha inteira, com as quatro bordas visíveis e "
                 f"bom contraste")
         raise ValueError("nenhum contorno de folha encontrado")
-
     if escala < 1.0:
         melhor = melhor / escala
     return _warp(imagem, _ordenar_cantos(melhor))
 
 # --- Classificação e validação ---------------------------------------------
-
 def classificar_checkbox(roi: np.ndarray, limiares: dict) -> str:
     """Classifica uma ROI: 'vazio' | 'suspeito' | 'marcado'."""
     cinza = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -509,7 +483,11 @@ def classificar_checkbox(roi: np.ndarray, limiares: dict) -> str:
     return "marcado"
 
 def contar_marcacoes_linha(classificacoes: list[str], limiares: dict) -> dict:
-    """Conta marcações de uma linha de 7 checkboxes e valida contiguidade."""
+    """Conta marcações de uma linha de 7 checkboxes e valida contiguidade.
+    RL-02: 'suspeito' não entra na frequência (viés permissivo), mas é
+    exposto em 'tem_suspeito'/'suspeitos' para a auditoria visual do
+    resultado — nunca mais silencioso.
+    """
     marcados = [i + 1 for i, c in enumerate(classificacoes) if c == "marcado"]
     suspeitos = [i + 1 for i, c in enumerate(classificacoes) if c == "suspeito"]
     avisos: list[str] = []
@@ -517,7 +495,12 @@ def contar_marcacoes_linha(classificacoes: list[str], limiares: dict) -> dict:
         avisos.append(f"caixas suspeitas: {suspeitos} — revisão manual")
     if marcados and marcados != list(range(1, max(marcados) + 1)):
         avisos.append(f"marcação não-contígua: {marcados} (processado, verificar)")
-    return {"frequencia": len(marcados), "avisos": avisos}
+    return {
+        "frequencia": len(marcados),
+        "avisos": avisos,
+        "tem_suspeito": bool(suspeitos),
+        "suspeitos": suspeitos,
+    }
 
 def validar_folha(frequencias: dict[str, dict]) -> list[str]:
     """Regras globais: folha em branco é rejeitada; limite 7 por critério."""
@@ -535,7 +518,8 @@ def validar_folha(frequencias: dict[str, dict]) -> list[str]:
 def roi_mm_para_px(roi_mm: dict, largura_px: int, altura_px: int) -> dict:
     """Converte uma ROI em mm (origem no topo-esquerda) para pixels da imagem
     alinhada — usa o tamanho REAL da imagem, então vale para qualquer
-    resolução de foto ou scanner."""
+    resolução de foto ou scanner. (RL-01)
+    """
     px_mm_x = largura_px / LARGURA_A4_MM
     px_mm_y = altura_px / ALTURA_A4_MM
     x = round(float(roi_mm["x"]) * px_mm_x)
@@ -546,7 +530,6 @@ def roi_mm_para_px(roi_mm: dict, largura_px: int, altura_px: int) -> dict:
 
 def _validar_coordenadas(coordenadas: dict, faixa: str) -> None:
     """Rejeita coordenadas não calibradas (placeholders em zero).
-
     Sem isso, um arquivo com x=0,y=0 faz o leitor ler o canto da imagem e
     produzir nota silenciosamente errada. Também exige a seção 'observacoes'
     (Fase 04 v2col-2.8) — sem ela, a folha não tem observações para ler.
@@ -575,10 +558,8 @@ def _validar_coordenadas(coordenadas: dict, faixa: str) -> None:
                 f"(x=0, y=0) — gere as folhas com tools/pre_exame.py")
 
 # --- Pipeline completo -----------------------------------------------------
-
 def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
     """Fluxo completo com layout da faixa -> JSON v2.0.
-
     Coordenadas em mm (config/coordenadas/<faixa>.json) são convertidas para
     pixels pelo tamanho real da imagem alinhada. As observações estruturadas
     (seção 'observacoes') são lidas na mesma passada dos códigos de erro e
@@ -587,42 +568,34 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
     Ótimo/A melhorar do mesmo avaliador e são registradas em
     'contradicoes_observacoes' para o relatório geral.
     """
+    faixa = str(faixa or "").strip().lower()  # RL-04: normalização
     limiares = carregar_json(base_cfg / "omr_thresholds.json")
     coordenadas = carregar_json(base_cfg / "coordenadas" / f"{faixa}.json")
     _validar_coordenadas(coordenadas, faixa)
-
     imagem = cv2.imread(str(caminho_imagem))
     if imagem is None:
         raise ValueError(f"não foi possível abrir a imagem: {caminho_imagem}")
-
     # QR: tenta na foto ORIGINAL antes do alinhamento — se o recorte de
     # perspectiva sair errado, o QR da foto crua ainda é decodificável.
     payload = decodificar_qr(imagem)
-
     alinhada = detectar_e_corrigir(imagem)
-
     # Guarda de folha cortada: área preta no warp = região fora da foto.
     fracao_preta = _fracao_preta(alinhada)
     if fracao_preta > _FRACAO_PRETA_MAX:
         raise ValueError(
             f"folha cortada na foto (área preta de {fracao_preta:.0%}) — "
             f"refaça a foto com a folha inteira no quadro")
-
     altura_px, largura_px = alinhada.shape[:2]
-
     if not payload:
         payload = decodificar_qr(alinhada)
     if not payload:
         raise ValueError("QR Code não encontrado — folha inválida ou sem QR")
-
     metadados = parse_payload_qr(payload)
-
     # A faixa do QR deve bater com a faixa esperada (validação cruzada):
-    if metadados.get("faixa", "").lower() != faixa.lower():
+    if metadados.get("faixa", "").strip().lower() != faixa:
         raise ValueError(
             f"faixa do QR ({metadados.get('faixa')}) difere do "
             f"layout carregado ({faixa})")
-
     frequencias: dict[str, dict[str, Any]] = {}
     for quesito in QUESITOS:
         frequencias[quesito] = {}
@@ -640,11 +613,18 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
                 celula = roi[:, i * passo:(i + 1) * passo]
                 classes.append(classificar_checkbox(celula, limiares))
             frequencias[quesito][chave] = contar_marcacoes_linha(classes, limiares)
-
+    # RL-02: critérios com checkbox suspeito viram incidente de auditoria
+    # visual no resultado — a penalidade continua calculada só com 'marcado',
+    # mas o silêncio acaba: o mestre precisa revisar a folha.
+    incidentes_auditoria = [
+        f"{quesito}.{chave}"
+        for quesito in QUESITOS
+        for chave, info in frequencias[quesito].items()
+        if info.get("tem_suspeito")
+    ]
     erros = validar_folha(frequencias)
     if erros:
         raise ValueError("; ".join(erros))
-
     # ------------------------------------------------------------------
     # Observações estruturadas (Fase 04 v2col-2.8): cada ROI da seção
     # 'observacoes' é um checkbox individual (obs_p1..p8, obs_m1..m8).
@@ -664,17 +644,15 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
             marcadas.append(chave)
         elif classe == "suspeito":
             avisos_obs.append(f"{chave} suspeita — revisão manual")
-
     # ------------------------------------------------------------------
     # Contradições (v2col-3.0): par Ótimo/A melhorar do MESMO avaliador.
     # As duas observações são anuladas e a contradição vai ao relatório.
-    # IMPORTA: precisa rodar ANTES do merge_no_json (o texto motado já
-    # sai sem as observações anuladas).
+    # IMPORTA: precisa rodar ANTES do merge_no_json (o texto montado
+    # já sai sem as observações anuladas).
     # ------------------------------------------------------------------
     from core import contradicoes as mod_contradicoes
     pares = mod_contradicoes.carregar_pares(base_cfg)
     marcadas, lista_contradicoes = mod_contradicoes.detectar(marcadas, pares)
-
     resultado = {
         "metadados": metadados,
         "aluno": {"id": metadados["aluno_id"], "faixa_atual": metadados["faixa"]},
@@ -689,7 +667,8 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
         resultado["avisos_observacoes"] = avisos_obs
     if lista_contradicoes:
         resultado["contradicoes_observacoes"] = lista_contradicoes
-
+    if incidentes_auditoria:
+        resultado["auditoria_visual"] = incidentes_auditoria
     # Observação legível do relatório: as chaves marcadas viram texto via
     # core/observacoes.py (vocabulário oficial — folha e relatório gêmeos).
     try:
@@ -697,5 +676,4 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path, faixa: str) -> dict:
         resultado = observacoes.merge_no_json(resultado)
     except ImportError:
         pass
-
     return resultado

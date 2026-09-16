@@ -1,9 +1,7 @@
 """core/relatorios.py — Relatórios em 3 camadas do Karate-Ashi v2.0. Camada 1: Individual (por aluno). Camada 2: Consolidado do Dojo (por exame) + Tendências. Camada 3: Master Multi-Dojo (estratégico, 4 Mestres). Inclui biblioteca de recomendações, elogios e regras de recorrência (50%/80% no Dojo; 50% entre Dojos). A saída é texto (para Telegram/relatório) e o resultado também fica disponível em JSON para o pipeline. Consome os resultados do motor (Fase 01): dict por aluno com "quesitos" -> {kihon|kata|bunkai|kumite} -> {"alerta", "detalhes"}, onde "detalhes" mapeia a chave semântica do critério (ex.: "base_incorreta") para {"fc", "marcacoes", "nome"}. """
 from __future__ import annotations
-import json
-from pathlib import Path
 
-QUESITOS_ORDEM = ["kihon", "kata", "bunkai", "kumite"]
+from core.config import QUESITOS as QUESITOS_ORDEM, carregar_json  # fonte única (Fase 4)
 NOME_QUESITO = {
     "kihon": "Kihon",
     "kata": "Kata",
@@ -44,11 +42,6 @@ NOME_CRITERIO = {
 }
 
 NIVEL_ORDEM = {"CRITICO": 0, "ATENCAO": 1, "OBSERVACAO": 2, "FORCA": 3}
-
-def carregar_json(caminho: Path) -> dict:
-    """Carrega um JSON com encoding UTF-8 (textos acentuados)."""
-    with open(caminho, "r", encoding="utf-8") as fh:
-        return json.load(fh)
 
 def nivel_por_fc(fc: float) -> str:
     """Nível base apenas pela frequência (sem ajustes de consenso)."""
@@ -243,21 +236,64 @@ def relatorio_tendencias(resultados_alunos: list[dict], recomendacoes: dict) -> 
     return "\n".join(linhas)
 
 def relatorio_master(resultados_dojos: list[dict], regras: dict, recomendacoes: dict) -> str:
-    """Relatório 3 — visão estratégica multi-Dojo (texto resumido)."""
+    """Relatório 3 — visão estratégica multi-Dojo (texto resumido).
+
+    Correção (falha da suíte): a função SEMPRE devolve uma string. Nunca
+    retorna None — relatório que "some" em silêncio é o pior tipo de falha.
+    Também tolera dojos sem 'alunos', alunos sem 'quesitos' e lista vazia.
+    """
+    if not resultados_dojos:
+        return "RELATORIO MASTER MULTI-DOJO\n\nSem dados de dojos."
+
     linhas = ["RELATORIO MASTER MULTI-DOJO", ""]
     n_dojos = len(resultados_dojos)
     presenca_global: dict[tuple, int] = {}
+
+    # Recorrência global: critério presente em N dojos
     for d in resultados_dojos:
         criterios_dojo = set()
-        for r in d.get("alunos", []):
-            for quesito, q in r["quesitos"].items():
-                for chave, det in q["detalhes"].items():
-                    if det["fc"] > 0:
+        for r in d.get("alunos") or []:
+            quesitos = r.get("quesitos") or {}
+            for quesito, q in quesitos.items():
+                detalhes = (q or {}).get("detalhes") or {}
+                for chave, det in detalhes.items():
+                    if det and det.get("fc", 0) > 0:
                         criterios_dojo.add((quesito, chave))
         for c in criterios_dojo:
             presenca_global[c] = presenca_global.get(c, 0) + 1
+
+    # Por dojo: média e aprovação
     for d in resultados_dojos:
-        alunos = d.get("alunos", [])
-        media = sum(r["nota_final"] for r in alunos) / len(alunos) if alunos else 0.0
-        aprovados = sum(1 for r in alunos if r["status"] == "APROVADO")
-        taxa_aprov = aprovados / len(alunos) * 100
+        alunos = d.get("alunos") or []
+        media = (sum(r.get("nota_final", 0.0) for r in alunos) / len(alunos)
+                 if alunos else 0.0)
+        aprovados = sum(1 for r in alunos if r.get("status") == "APROVADO")
+        taxa_aprov = aprovados / len(alunos) * 100 if alunos else 0.0
+        linhas.append(f"Dojo {d['dojo_id']}: média {media:.1f} | "
+                      f"aprovação {taxa_aprov:.0f}%")
+        anterior = d.get("media_anterior")
+        if anterior is not None and media < anterior:
+            linhas.append(f" -> Alerta de acompanhamento: média caiu de "
+                          f"{anterior:.1f} para {media:.1f} (exame anterior).")
+
+    # Diretrizes globais (critério em 50%+ dos Dojos)
+    linhas.append("")
+    linhas.append("DIRETRIZES PEDAGOGICAS GLOBAIS (critério em 50%+ dos Dojos):")
+    if n_dojos and presenca_global:
+        diretrizes = sorted(
+            ((c, count) for c, count in presenca_global.items()
+             if count / n_dojos >= 0.5),
+            key=lambda x: -x[1],
+        )
+        if diretrizes:
+            for (quesito, chave), count in diretrizes:
+                linhas.append(f"- {NOME_QUESITO[quesito]} - "
+                              f"{NOME_CRITERIO.get(chave, chave)} "
+                              f"({count}/{n_dojos} Dojos): "
+                              f"{recomendacoes.get(chave, '')}")
+        else:
+            linhas.append("- Nenhum critério atingiu 50% de recorrência entre Dojos.")
+    else:
+        linhas.append("- Sem dados suficientes.")
+
+    return "\n".join(linhas)
