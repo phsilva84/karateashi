@@ -1,7 +1,9 @@
 {
-  "S01": "Sensei Paulo",
-  "S02": "Sensei Fabiano",
-  "S03": "Sensei Fabio",
-  "S04": "Sensei Guilherme",
-  "S05": "Sensei Tayna"
+  "avaliadores": [
+    { "id": "S01", "nome": "Sensei Paulo" },
+    { "id": "S02", "nome": "Sensei Fabio" },
+    { "id": "S03", "nome": "Sensei Fabiano" },
+    { "id": "S04", "nome": "Sensei Guilherme" },
+    { "id": "S05", "nome": "Sensei Tayna" }
+  ]
 }

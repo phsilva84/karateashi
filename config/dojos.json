@@ -1,3 +1,20 @@
 {
-  "D01": "Dojo Wolf"
+  "_comentario": "Fonte de verdade dos dojos. canal_id é OPCIONAL: null = relatórios vão para o canal 'geral'. Só preencha se o dojo tiver canal Telegram próprio (raro).",
+  "dojos": [
+    {
+      "id": "D01",
+      "nome": "Dojo Wolf",
+      "canal_id": null
+    },
+    {
+      "id": "D02",
+      "nome": "Dojo Teste (fictício)",
+      "canal_id": null
+    },
+    {
+      "id": "D03",
+      "nome": "Dojo Atsuyunion",
+      "canal_id": null
+    }
+  ]
 }

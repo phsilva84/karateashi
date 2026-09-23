@@ -142,6 +142,40 @@ def relatorio_individual(resultado: dict, regras: dict, recomendacoes: dict, alu
         linhas.extend(f"- {e}" for e in elogios)
     return "\n".join(linhas)
 
+def relatorio_individual(resultado: dict, regras: dict, recomendacoes: dict, aluno: dict) -> str:
+    """Relatório 1 — texto formatado, na ordem normativa definida."""
+    linhas = [
+        f"ALUNO: {aluno.get('nome', '')}",
+        f"NOTA FINAL: {resultado['nota_final']} STATUS: {resultado['status']}",
+        "",
+    ]
+    # 1º Alerta ético
+    for quesito, q in resultado["quesitos"].items():
+        if q.get("alerta") == "ALERTA_ETICO":
+            linhas.append("** ALERTA ETICO **")
+            linhas.append(f"{NOME_QUESITO[quesito]}: falta de controle "
+                          "sinalizada sem consenso — atenção máxima.")
+            linhas.append("")
+    # 2º a 4º Recomendações por nível
+    linhas.append("RECOMENDACOES:")
+    for item in gerar_recomendacoes(resultado, recomendacoes):
+        linhas.append(f"[{item['nivel']}] {item['quesito']} - "
+                      f"{item['criterio']}: {item['texto']}")
+    linhas.append("")
+    # 5º Elogios
+    elogios = gerar_elogios(resultado, regras, recomendacoes)
+    if elogios:
+        linhas.append("PONTOS FORTES:")
+        linhas.extend(f"- {e}" for e in elogios)
+    # NOVO: Observações automáticas (derivadas das marcações do OMR)
+    obs_auto = resultado.get("observacoes_automaticas", [])
+    if obs_auto:
+        linhas.append("")
+        linhas.append("OBSERVACOES AUTOMATICAS (baseadas nas marcações):")
+        for obs in obs_auto:
+            linhas.append(f"- {obs['texto']}")
+    return "\n".join(linhas)
+
 def consolidar_dojo(resultados_alunos: list[dict], regras: dict) -> dict:
     """Relatório 2 — agregações do Dojo (recorrência 50%/80%)."""
     n = len(resultados_alunos)

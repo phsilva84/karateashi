@@ -1,4 +1,4 @@
-"""tools/ingest_folhas.py — Ingestão unificada scanner + fotos (v2col-4.0).
+"""tools/ingest_folhas.py — Ingestão unificada scanner + fotos (v2col-4.1).
 
 Segunda camada de entrada: além das FOTOS de celular, o sistema aceita folhas
 DIGITALIZADAS (scanner de mesa ou ADF). O objetivo é não depender da qualidade
@@ -26,6 +26,7 @@ import argparse
 import json
 import shutil
 import sys
+import time
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -40,13 +41,16 @@ EXT_VALIDAS = EXT_IMAGEM | EXT_PDF
 PASTAS_SCANNER = {"scanner", "digitalizado", "digitalizadas", "scan"}
 PASTAS_FOTO = {"foto", "fotos", "photo", "photos", "celular"}
 
+
 def _origem_por_pasta(caminho: Path) -> str | None:
+    """Decisão 1: a ingestão decide a origem olhando o nome das pastas."""
     nomes = {p.casefold() for p in caminho.parts}
     if nomes & PASTAS_SCANNER:
         return "scanner"
     if nomes & PASTAS_FOTO:
         return "foto"
     return None
+
 
 def _expandir(caminho: Path, destino: Path) -> list[Path]:
     """Devolve as páginas do arquivo (único, ou extraídas de TIFF/PDF)."""
@@ -78,15 +82,26 @@ def _expandir(caminho: Path, destino: Path) -> list[Path]:
                 "PDF exige a biblioteca 'pypdfium2' (pip install pypdfium2). "
                 "Alternativa: exporte as páginas como PNG/TIFF.") from exc
         pdf = pdfium.PdfDocument(str(caminho))
-        paginas = []
-        for indice in range(len(pdf)):
-            bitmap = pdf[indice].render(scale=300 / 72)   # ~300 dpi
-            saida = destino / f"{caminho.stem}_p{indice + 1}.png"
-            bitmap.to_pil().save(saida)
-            paginas.append(saida)
-        return paginas
+        try:
+            paginas = []
+            for indice in range(len(pdf)):
+                bitmap = pdf[indice].render(scale=300 / 72)   # ~300 dpi
+                saida = destino / f"{caminho.stem}_p{indice + 1}.png"
+                imagem = bitmap.to_pil()
+                try:
+                    imagem.save(saida)
+                finally:
+                    imagem.close()
+                paginas.append(saida)
+            return paginas
+        finally:
+            # Fecha o documento PDF e libera o arquivo no disco.
+            # Sem isso, o Windows mantém o arquivo aberto e o move falha
+            # com PermissionError [WinError 32].
+            pdf.close()
 
     return [caminho]
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Ingestão de folhas (scanner + fotos)")
@@ -119,6 +134,7 @@ def main() -> int:
 
     processadas, falhas = [], []
     for arquivo in arquivos:
+        # Decisão 1: resolve a origem UMA vez por arquivo (não por página).
         origem = args.origem
         if origem == "auto":
             origem = _origem_por_pasta(arquivo) or "auto"
@@ -129,35 +145,62 @@ def main() -> int:
             falhas.append((arquivo.name, str(exc)))
             continue
 
+        paginas_ok = True
         for pagina in paginas:
             rotulo = arquivo.name if len(paginas) == 1 else pagina.name
             try:
-                # Assinatura canônica v2.0: (caminho_imagem, base_cfg, faixa=None).
-                # O kwarg espúrio 'origem' foi removido (quebra #5 da auditoria).
-                resultado = omr_reader.processar_imagem(
-                    pagina, args.config, faixa=args.faixa)
+                # Assinatura canônica v2.0 + origem (v3.5):
+                # 'scanner' pula o warp (folha já plana) — corrige QR do
+                # aluno não lido e balões desalinhados no scan.
+                resultados = omr_reader.processar_imagem(
+                    pagina, args.config, faixa=args.faixa, origem=origem)
             except ValueError as exc:
                 falhas.append((rotulo, str(exc)))
+                paginas_ok = False
                 continue
 
-            destino = args.saida / f"{pagina.stem}.json"
-            with open(destino, "w", encoding="utf-8") as fh:
-                json.dump(resultado, fh, ensure_ascii=False, indent=2)
+            # CORRIGIDO: novo layout tem até 3 alunos por folha — o
+            # processar_imagem devolve uma LISTA (um dict por aluno).
+            # Garante lista mesmo se algum dia voltar a ser dict único.
+            if not isinstance(resultados, list):
+                resultados = [resultados]
 
-            aluno = resultado["aluno"]["id"]
-            metadados = resultado["metadados"]
-            obs = resultado.get("observacao_montada") or "-"
-            # Guarda defensiva: o leitor v2.0 pode não expor 'origem' no resultado.
-            origem_final = resultado.get("origem", origem)
-            processadas.append((rotulo, aluno, metadados.get("faixa"),
-                                origem_final, obs))
-            print(f"[OK] {rotulo} | aluno {aluno} | faixa "
-                  f"{metadados.get('faixa')} | {origem_final} | "
-                  f"obs: {obs[:70]}")
+            for resultado in resultados:
+                # Decisão 1: a INGESTÃO grava o metadado 'origem' no JSON.
+                # O núcleo não precisa saber — ele só lê a imagem.
+                resultado["origem"] = origem
 
-        if args.arquivo:
+                aluno_id = (resultado.get("aluno") or {}).get("id") or "desconhecido"
+                destino = args.saida / f"{pagina.stem}_{aluno_id}.json"
+                with open(destino, "w", encoding="utf-8") as fh:
+                    json.dump(resultado, fh, ensure_ascii=False, indent=2)
+
+                metadados = resultado.get("metadados") or {}
+                obs = resultado.get("observacao_montada") or "-"
+                processadas.append((rotulo, aluno_id,
+                                    metadados.get("faixa"), origem, obs))
+                print(f"[OK] {rotulo} | aluno {aluno_id} | faixa "
+                      f"{metadados.get('faixa')} | {origem} | "
+                      f"obs: {obs[:70]}")
+
+        # Decisão 2: arquiva o original SÓ se todas as páginas processaram.
+        # Se alguma página falhou, o arquivo fica na entrada para reprocessar.
+        if args.arquivo and paginas_ok:
             args.arquivo.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(arquivo), str(args.arquivo / arquivo.name))
+            destino_arquivo = args.arquivo / arquivo.name
+            try:
+                shutil.move(str(arquivo), str(destino_arquivo))
+            except OSError:
+                # Lock transitório (Windows/antivírus): espera e tenta de novo.
+                time.sleep(1)
+                try:
+                    shutil.move(str(arquivo), str(destino_arquivo))
+                except OSError as exc:
+                    # Não derruba o lote: o arquivo fica na entrada e será
+                    # reprocessado na próxima rodada (idempotente).
+                    print(f"[AVISO] {arquivo.name}: processado, mas não "
+                          f"arquivado ({exc}). Será reprocessado na próxima "
+                          f"rodada.")
 
     print()
     for rotulo, erro in falhas:
@@ -165,6 +208,7 @@ def main() -> int:
     print(f"\nProcessadas: {len(processadas)} | falhas: {len(falhas)} | "
           f"JSONs em {args.saida}")
     return 0 if not falhas else 1
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -1,14 +1,15 @@
 {
-  "_comentario": "Preencha com os valores reais antes do 1º run. telegram_chat_id: use -100... para grupos/canais (obtenha via @userinfobot ou BotFather). drive_pasta: caminho no remote 'gdrive:' do RCLONE_CONF. Adicione um bloco por Dojo (D01, D02, ...).",
-  "dojos": {
-    "D01": {
-      "nome": "Dojo Central",
-      "telegram_chat_id": "-1000000000000",
-      "drive_pasta": "gdrive:KarateAshi/Dojo01"
-    }
-  },
+  "_comentario": "Canais de DESTINO genéricos — o dojo NÃO gera canal próprio. Os relatórios carregam o dojo_id no nome e no conteúdo e são enviados aos canais abaixo. Se um dojo quiser canal exclusivo no futuro, preencha canal_id em dojos.json (opcional). telegram_chat_id: use -100... para grupos/canais (obtenha via @userinfobot ou BotFather).",
   "mestres": {
+    "nome": "Canal dos Mestres",
+    "tipo": "telegram",
     "telegram_chat_id": "-1000000000001",
     "drive_pasta": "gdrive:KarateAshi/Mestres"
+  },
+  "geral": {
+    "nome": "Canal Geral de Relatórios",
+    "tipo": "telegram",
+    "telegram_chat_id": "-1000000000000",
+    "drive_pasta": "gdrive:KarateAshi/relatorios"
   }
 }

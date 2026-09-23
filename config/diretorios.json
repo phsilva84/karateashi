@@ -1,7 +1,9 @@
 {
+  "_comentario": "Estrutura plana por FLUXO — NÃO por dojo. Os relatórios carregam o dojo_id no nome do arquivo. Estes caminhos são do fluxo local com o Google Drive montado; no CI (GitHub Actions) o pipeline.yml usa caminhos relativos (data/, output/).",
   "entrada_scanner": "G:/Drives compartilhados/Karate-Ashi Inbox/entrada/scanner",
   "entrada_fotos": "G:/Drives compartilhados/Karate-Ashi Inbox/entrada/fotos",
   "imagens": "G:/Drives compartilhados/Karate-Ashi Arquivo/imagens",
   "processados": "G:/Drives compartilhados/Karate-Ashi Arquivo/processados",
-  "relatorios": "G:/Drives compartilhados/Karate-Ashi Arquivo/relatorios"
+  "relatorios": "G:/Drives compartilhados/Karate-Ashi Arquivo/relatorios",
+  "por_exame": "G:/Drives compartilhados/Karate-Ashi Arquivo/relatorios/{exame_id}"
 }

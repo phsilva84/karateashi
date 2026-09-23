@@ -18,5 +18,13 @@
   "elogios": {
     "criterio_transversal_min_quesitos": 2,
     "destaque_geral_min": 85.0
+  },
+  "observacoes_automaticas": {
+    "transversal_min_frequencia": 3,
+    "transversal_min_quesitos": 2,
+    "concentrada_min_frequencia": 4,
+    "ranking_min_soma": 6,
+    "percentual_min": 0.50,
+    "max_observacoes": 3
   }
 }

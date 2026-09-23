@@ -1,23 +1,25 @@
-"""core/observacoes.py — Observações estruturadas da folha (Karate-Ashi v2.0).
+"""core/observacoes.py — Observações estruturadas da folha (Karate-Ashi v4.9).
 
-A observação do avaliador nasce na FOLHA como checkboxes (Fase 04, v2col-2.8),
-uniforme para todas as faixas:
+A observação do avaliador nasce na FOLHA como checkboxes (6+6), uniforme
+para todas as faixas:
 
-    'Ótimo!'     -> obs_p1..obs_p8   (pontos fortes)
-    'A Melhorar' -> obs_m1..obs_m8   (correções)
+    'Ótimo!'     -> obs_p1..obs_p6   (pontos fortes)
+    'A Melhorar' -> obs_m1..obs_m6   (correções)
 
 O OMR lê as ROIs 'obs_*' na mesma passada dos códigos de erro e grava no
 JSON intermediário:
 
     resultado["observacoes_marcadas"] = ["obs_p1", "obs_m2", ...]
 
-Este módulo NÃO lê CSV: o fluxo data/observacoes/<exame>/<avaliador>.csv foi
-REMOVIDO nesta versão. Ele é o MAPEADOR chave -> texto: converte as chaves
-marcadas na observação legível do relatório (observacao_montada).
+Este módulo é o MAPEADOR chave -> texto: converte as chaves marcadas na
+observação legível do relatório (observacao_montada).
 
 Fonte única do vocabulário: OBS_POSITIVAS e OBS_MELHORAR definidas AQUI.
-O tools/pre_exame.py importa essas constantes para desenhar a seção — folha
-e relatório nunca divergem (princípio dos gêmeos).
+O tools/pre_exame.py IMPORTA essas constantes para desenhar a seção —
+folha e relatório nunca divergem (princípio dos gêmeos).
+
+Observações AUTOMÁTICAS (derivadas das frequências por regras) ficam em
+core/observacoes_automaticas.py — módulo separado e complementar.
 
 Integração:
     # OMR (Fase 03) — após ler as ROIs de observação:
@@ -31,29 +33,25 @@ import logging
 
 log = logging.getLogger("karate-ashi.observacoes")
 
-# --- Vocabulário oficial das observações (Fase 04, v2col-2.8) ---------------
+# --- Vocabulário oficial das observações (v4.9 — 6+6) ----------------------
 # Única fonte de verdade: a folha desenha e o relatório lê esta lista.
 # Não duplicar em outro módulo — importe daqui.
 OBS_POSITIVAS = {
-    "obs_p1": "Boa execução técnica",
-    "obs_p2": "Ótima base / postura",
-    "obs_p3": "Bom controle de distância",          # era "Chutes firmes"
-    "obs_p4": "Boa concentração / foco",
-    "obs_p5": "Ótima execução do Bunkai",           # era "Bom controle e defesa"
-    "obs_p6": "Combate técnico / ágil",
-    "obs_p7": "Ótima Execução do Kata",
-    "obs_p8": "Ótima execução de Kihons",
+    "obs_p1": "Boa execucao dos Kihons",
+    "obs_p2": "Bom dominio do Kata",
+    "obs_p3": "Boa aplicacao do Bunkai",
+    "obs_p4": "Boa Conducao no Kumite",
+    "obs_p5": "Bom Dominio Tecnico",
+    "obs_p6": "Otimo Desempenho",
 }
 
 OBS_MELHORAR = {
-    "obs_m1": "Melhorar bases / postura",
-    "obs_m2": "Dificuldade nas Transições de Bases",
-    "obs_m3": "Falta kiai (usar mais o kiai)",
-    "obs_m4": "Falta foco / olhar nas técnicas",
-    "obs_m5": "Mais carga nos golpes",
-    "obs_m6": "Erros Técnicos Constantes",
-    "obs_m7": "Execução Incorreta do Kata",
-    "obs_m8": "Dificuldade na execução de Kihons",
+    "obs_m1": "Dificuldade nos Kihon",
+    "obs_m2": "Dificuldade no Kata",
+    "obs_m3": "Dificuldade no Bunkai",
+    "obs_m4": "Dificuldade nos Kumites",
+    "obs_m5": "Erros Tecnicos Constantes",
+    "obs_m6": "Nervosismo Constante",
 }
 
 _COLUNAS = (
@@ -61,17 +59,15 @@ _COLUNAS = (
     ("A Melhorar", OBS_MELHORAR),
 )
 
-def _ordem(chave: str) -> int:
-    """Extrai o número final da chave (obs_p1 -> 1, obs_m8 -> 8).
 
-    As chaves têm DOIS underscores (obs_p1), então rsplit("_", 1) devolveria
-    "p1" — por isso extraímos apenas os dígitos. Chaves sem número -> 0.
-    """
+def _ordem(chave: str) -> int:
+    """Extrai o número final da chave (obs_p1 -> 1, obs_m6 -> 6)."""
     digitos = "".join(c for c in chave if c.isdigit())
     try:
         return int(digitos)
     except ValueError:
         return 0
+
 
 def _ordem_canonica(chave: str) -> tuple[int, int]:
     """Ordem da folha: coluna 'Ótimo!' (p) antes de 'A Melhorar' (m);
@@ -79,12 +75,13 @@ def _ordem_canonica(chave: str) -> tuple[int, int]:
     prefixo = chave.split("_")[1][0] if "_" in chave and len(chave.split("_")) > 1 else ""
     return (0 if prefixo == "p" else 1, _ordem(chave))
 
+
 def montar_observacao(marcadas: list[str]) -> str:
     """Converte chaves marcadas na observação legível do relatório.
 
     Ex.: ["obs_p1", "obs_m2", "obs_m6"] ->
-         "Ótimo! Boa execução técnica. A melhorar: Dificuldade nas
-          Transições de Bases; Erros Técnicos Constantes."
+         "Ótimo! Boa execucao dos Kihons. A melhorar: Dificuldade no
+          Kata; Nervosismo Constante."
 
     Ordena por coluna (Ótimo! antes de A Melhorar) e, dentro de cada
     coluna, pela ordem impressa na folha. Chaves desconhecidas são
@@ -106,6 +103,7 @@ def montar_observacao(marcadas: list[str]) -> str:
         partes.append("A melhorar: " + "; ".join(OBS_MELHORAR[c] for c in melhorar))
     return ". ".join(partes)
 
+
 def merge_no_json(resultado: dict) -> dict:
     """Constrói 'observacao_montada' a partir de 'observacoes_marcadas'.
 
@@ -123,9 +121,10 @@ def merge_no_json(resultado: dict) -> dict:
     log.info("observação montada: %r", resultado["observacao_montada"])
     return resultado
 
+
 if __name__ == "__main__":
     # Checagem rápida de alinhamento: imprime o vocabulário oficial.
-    print("Observações estruturadas (v2col-2.8) — vocabulário oficial:\n")
+    print("Observações estruturadas (v4.9) — vocabulário oficial:\n")
     for titulo, coluna in _COLUNAS:
         print(f"--- {titulo} ---")
         for chave, texto in coluna.items():

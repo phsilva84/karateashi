@@ -1,169 +1,160 @@
-"""core/pipeline.py — Orquestrador do processamento v2.0.
-
-Fluxo:
-1. varre data/gabaritos/ (imagens) e data/ (TXT fallback);
-2. para cada imagem: OMR (core/omr_reader) → JSON intermediário;
-3. agrupa JSONs por aluno (QR: aluno_id) e por avaliador;
-4. engine (core/engine) calcula notas por faixa;
-5. relatórios (core/relatorios) geram as 3 camadas, por Dojo.
-
-Correções v2.0 (revisão da Fase 08):
-- A faixa vem do QR Code (dados["aluno"]["faixa_atual"]), não hardcoded.
-- Relatórios gerados por Dojo (evita vazar dados entre unidades).
-- data/cadastro/ mapeia aluno_id → dojo_id para o roteamento.
-"""
+"""core/pipeline.py — trecho de integração OMR → engine (adicionar ao módulo)."""
 from __future__ import annotations
 
-import argparse
 import json
-from collections import defaultdict
+import re
 from pathlib import Path
 
-from core import engine, relatorios
-from core.omr_reader import processar_imagem
-from core.parser import parse_arquivo
+from core.engine import carregar_faixa, processa_aluno
 
-QUESITOS_ORDEM = ["kihon", "kata", "bunkai", "kumite"]
-FAIXA_FALLBACK = "branca"
-DOJO_FALLBACK = "D01"
 
-def processar_gabaritos(pasta: Path, base_cfg: Path) -> list[dict]:
-    """Roda o OMR em cada imagem e devolve a lista de JSONs v2.0.
+def _indice_posicional(chave: str) -> int | None:
+    """Reconhece chaves 'c1'..'cN' do OMR e devolve o índice 0-based."""
+    m = re.fullmatch(r"c(\d+)", chave.strip().casefold())
+    return int(m.group(1)) - 1 if m else None
 
-    A faixa é lida do QR Code (dados["aluno"]["faixa_atual"]); se o QR
-    não trouxer faixa, usa FAIXA_FALLBACK. Folhas com erro são registradas
-    e ignoradas — não derrubam o lote.
+
+def _nome_criterio(criterio: dict, indice: int) -> str:
+    """Resolve o nome canônico de um critério da matriz de faixa.
+
+    Tenta 'chave' (nome normalizado); sem isso, deriva um slug do 'nome';
+    em último caso mantém a posição ('cN').
     """
-    jsons = []
-    for img in sorted(pasta.glob("*.jpg")) + sorted(pasta.glob("*.png")):
-        try:
-            dados = processar_imagem(img, base_cfg)  # faixa vem do QR
-            dados["aluno"]["faixa_atual"] = (
-                dados["aluno"].get("faixa_atual") or FAIXA_FALLBACK
-            )
-            jsons.append(dados)
-        except ValueError as exc:
-            print(f"[ERRO] {img.name}: {exc}")
-    return jsons
+    if isinstance(criterio, str):
+        return criterio
+    for campo in ("chave", "nome_normalizado", "slug"):
+        if criterio.get(campo):
+            return criterio[campo]
+    nome = criterio.get("nome")
+    if nome:
+        acentos = {"ç": "c", "ã": "a", "õ": "o", "á": "a", "é": "e",
+                   "í": "i", "ó": "o", "ú": "u", "â": "a", "ê": "e", "ô": "o"}
+        return ("".join(acentos.get(c, c) for c in nome.strip().lower())
+                .replace(" ", "_").replace("-", "_"))
+    return f"c{indice + 1}"
 
-def carregar_cadastro(pasta: Path) -> dict[str, dict]:
-    """Lê data/cadastro/*.json e devolve {aluno_id: registro}.
 
-    O cadastro associa cada aluno ao seu Dojo (dojo_id) — usado para
-    rotear os relatórios sem vazar dados entre unidades.
+def converter_frequencias_omr(folha: dict, matriz_faixa: dict) -> dict:
+    """Converte as chaves posicionais (c1..cN) do OMR em nomes de critérios.
+
+    A matriz da faixa é a fonte única de interpretação: a posição N da
+    leitura óptica corresponde SEMPRE ao critério N da matriz vigente.
     """
-    cadastro: dict[str, dict] = {}
-    if not pasta.exists():
-        return cadastro
-    for arq in sorted(pasta.glob("*.json")):
-        try:
-            dados = json.loads(arq.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            print(f"[ERRO] cadastro {arq.name}: {exc}")
-            continue
-        registros = dados if isinstance(dados, list) else dados.get("alunos", [dados])
-        for reg in registros:
-            aluno_id = reg.get("aluno_id") or reg.get("id")
-            if aluno_id:
-                cadastro[str(aluno_id)] = reg
-    return cadastro
+    convertidas = {}
+    for quesito, bloco in folha.get("avaliacoes", {}).items():
+        criterios = (matriz_faixa.get("quesitos", {})
+                     .get(quesito, {}).get("criterios", []))
+        novo: dict[str, int] = {}
+        for chave, contagem in bloco.get("frequencias", {}).items():
+            indice = _indice_posicional(chave)
+            if indice is not None and indice < len(criterios):
+                nome = _nome_criterio(criterios[indice], indice)
+            else:
+                nome = chave  # já é nome canônico (ou chave desconhecida)
+            novo[nome] = novo.get(nome, 0) + int(contagem)
+        convertidas[quesito] = novo
+    return convertidas
 
-def agrupar_por_aluno(jsons: list[dict]) -> dict[str, list[dict]]:
-    """Agrupa os JSONs dos avaliadores por aluno_id."""
-    grupos: dict[str, list[dict]] = defaultdict(list)
-    for dados in jsons:
-        grupos[dados["aluno"]["id"]].append(dados)
-    return dict(grupos)
 
-def dojo_do_aluno(aluno_id: str, cadastro: dict[str, dict]) -> str:
-    """Devolve o dojo_id do aluno (fallback: DOJO_FALLBACK + aviso)."""
-    reg = cadastro.get(aluno_id)
-    if not reg:
-        print(f"[AVISO] aluno {aluno_id} sem cadastro — usando dojo {DOJO_FALLBACK}")
-        return DOJO_FALLBACK
-    return reg.get("dojo_id") or DOJO_FALLBACK
+def carregar_jsons_omr(pasta_omr: Path) -> list[dict]:
+    """Lê todos os JSONs de folhas gerados pelo ingest_folhas."""
+    if not pasta_omr.is_dir():
+        return []
+    return [
+        json.loads(p.read_text(encoding="utf-8"))
+        for p in sorted(pasta_omr.glob("*.json"))
+        if p.name != "resumo_ingestao.json"
+    ]
 
-def _chamar_relatorio(nome: str, *args) -> str | None:
-    """Chama core/relatorios.<nome>(*args) se existir (camadas 2 e 3)."""
-    fn = getattr(relatorios, nome, None)
-    if fn is None:
-        print(f"[AVISO] core/relatorios não expõe {nome}() — camada ignorada")
-        return None
-    return fn(*args)
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description="Pipeline Karate-Ashi v2.0")
-    ap.add_argument("--config", type=Path, default=Path("config"))
-    ap.add_argument("--data", type=Path, default=Path("data"))
-    ap.add_argument("--output", type=Path, default=Path("output"))
-    args = ap.parse_args()
-    args.output.mkdir(parents=True, exist_ok=True)
+def agregar_por_aluno(folhas: list[dict]) -> dict[str, list[dict]]:
+    """Agrupa as folhas pelo aluno_id — uma lista de avaliadores por aluno."""
+    grupos: dict[str, list[dict]] = {}
+    for folha in folhas:
+        grupos.setdefault(folha["aluno"]["id"], []).append(folha)
+    return grupos
 
-    # 1. Entrada: imagens OMR + fallback TXT
-    jsons = processar_gabaritos(args.data / "gabaritos", args.config)
-    if (args.data / "input.txt").exists():
-        jsons += parse_arquivo(args.data / "input.txt", args.config)
 
-    cadastro = carregar_cadastro(args.data / "cadastro")
+def montar_lote_engine(aluno_id: str, faixa_raw: str,
+                       avaliadores: list[dict], matriz: dict) -> list[dict]:
+    """Monta a lista de avaliadores no schema que o processa_aluno espera.
 
-    # 2. Agrupar por aluno e calcular notas por faixa
+    As frequências posicionais do OMR viram nomes de critérios pela matriz;
+    o primeiro avaliador carrega o bloco 'aluno' com a faixa normalizada.
+    """
+    faixa = (faixa_raw or "").strip().lower()
+    lote = []
+    for i, av in enumerate(avaliadores):
+        bloco = {
+            "avaliacoes": {
+                q: {
+                    "frequencias": converter_frequencias_omr(
+                        {"avaliacoes": {q: {"frequencias": av.get(
+                            "avaliacoes", {}).get(q, {}).get("frequencias", {})}}},
+                        matriz,
+                    ).get(q, {}),
+                    "observacao": av.get("avaliacoes", {}).get(q, {})
+                    .get("observacao", ""),
+                }
+                for q in matriz.get("quesitos", {})
+            }
+        }
+        if av.get("observacao_montada"):
+            bloco["observacao_geral"] = av["observacao_montada"]
+        if av.get("dados_legados"):
+            bloco["dados_legados"] = True
+        if av.get("codigos_descartados"):
+            bloco["codigos_descartados"] = av["codigos_descartados"]
+        if i == 0:
+            bloco["aluno"] = {"id": aluno_id, "faixa_atual": faixa}
+        lote.append(bloco)
+    return lote
+
+
+def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
+    """Fluxo completo: lê os JSONs do ingest, agrega por aluno e processa."""
+    folhas = carregar_jsons_omr(pasta_omr)
+    matriz = carregar_faixa(cfg, "branca")  # default; a faixa real vem do QR
     resultados = []
-    for aluno_id, avaliacoes in agrupar_por_aluno(jsons).items():
-        faixa = avaliacoes[0]["aluno"]["faixa_atual"].lower()
-        try:
-            resultado = engine.processa_aluno(avaliacoes, args.config, faixa)
-        except ValueError as exc:
-            print(f"[ERRO] aluno {aluno_id}: {exc}")
-            continue
-        resultados.append({
-            "aluno": avaliacoes[0]["aluno"],
-            "dojo_id": dojo_do_aluno(aluno_id, cadastro),
-            "resultado": resultado,
-        })
+    for aluno_id, avaliadores in agregar_por_aluno(folhas).items():
+        faixa = (avaliadores[0].get("metadados", {}).get("faixa")
+                 or "branca").strip().lower()
+        lote = montar_lote_engine(aluno_id, faixa, avaliadores, matriz)
+        resultado = processa_aluno(lote, cfg, faixa)
+        resultado["aluno_id"] = aluno_id
+        resultado["origens"] = [av.get("origem") for av in avaliadores]
+        # NOVO: observações automáticas derivadas das frequências do OMR
+        resultado["observacoes_automaticas"] = gerar_obs_automaticas_do_aluno(
+            avaliadores, cfg)
+        resultados.append(resultado)
+    return resultados
 
-    if not resultados:
-        print("[ERRO] Nenhum aluno processado — verifique gabaritos e cadastro.")
-        return 1
 
-    # 3. Relatórios (3 camadas)
-    regras = engine.carregar_json(args.config / "regras_gerais.json")
-    recomendacoes = engine.carregar_json(args.config / "recomendacoes.json")
+def gerar_obs_automaticas_do_aluno(avaliadores: list[dict], cfg: Path) -> list[dict]:
+    """Gera observações automáticas a partir das frequências do OMR.
 
-    por_dojo: dict[str, list[dict]] = defaultdict(list)
-    for item in resultados:
-        por_dojo[item["dojo_id"]].append(item)
-
-    # Camada 1 — individual, por Dojo (distribuído pelo notifications.py)
-    for dojo_id, itens in por_dojo.items():
-        with open(args.output / f"relatorio_individual_{dojo_id}.txt",
-                  "w", encoding="utf-8") as fh:
-            for item in itens:
-                fh.write(relatorios.relatorio_individual(
-                    item["resultado"], regras, recomendacoes, item["aluno"]))
-                fh.write("\n\n---\n\n")
-
-    # Consolidado — apenas arquivo local (NÃO é distribuído: evita vazamento)
-    with open(args.output / "relatorio_individual.txt", "w", encoding="utf-8") as fh:
-        for item in resultados:
-            fh.write(relatorios.relatorio_individual(
-                item["resultado"], regras, recomendacoes, item["aluno"]))
-            fh.write("\n\n---\n\n")
-
-    # Camada 2 — consolidado por Dojo
-    for dojo_id, itens in por_dojo.items():
-        texto = _chamar_relatorio("relatorio_dojo", itens, regras, recomendacoes)
-        if texto:
-            (args.output / f"relatorio_dojo_{dojo_id}.txt").write_text(
-                texto, encoding="utf-8")
-
-    # Camada 3 — relatório dos Mestres (global, não sai por Dojo)
-    texto = _chamar_relatorio("relatorio_master", resultados, regras, recomendacoes)
-    if texto:
-        (args.output / "relatorio_master.txt").write_text(texto, encoding="utf-8")
-
-    print(f"Processados {len(resultados)} alunos em {len(por_dojo)} dojo(s). "
-          f"Relatórios em {args.output}")
-    return 0
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    Consolida as frequências de todos os avaliadores do aluno (soma por
+    critério) e aplica as regras do módulo observacoes_automaticas.
+    """
+    # Consolida as frequências somando os avaliadores
+    consolidado: dict[str, dict[str, int]] = {}
+    for av in avaliadores:
+        for quesito, bloco in av.get("avaliacoes", {}).items():
+            for chave, freq in bloco.get("frequencias", {}).items():
+                consolidado.setdefault(quesito, {})
+                consolidado[quesito][chave] = (
+                    consolidado[quesito].get(chave, 0) + int(freq)
+                )
+    faixa = (avaliadores[0].get("metadados", {}).get("faixa")
+             or "branca").strip().lower()
+    # Monta o dict no formato que o módulo espera
+    resultado = {
+        "avaliacoes": {
+            q: {"frequencias": consolidado.get(q, {})}
+            for q in consolidado
+        },
+        "aluno": {"faixa_atual": faixa},
+    }
+    return observacoes_automaticas.merge_no_json(resultado, cfg)[
+        "observacoes_automaticas"
+    ]

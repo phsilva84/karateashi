@@ -1,0 +1,18 @@
+{
+  "exames": [
+    {
+      "id": "EXA-D01-2026-10",
+      "dojo_id": "D01",
+      "data_exame": "2026-10-03",
+      "avaliadores": ["S02", "S03", "S04"],
+      "status": "agendado"
+    },
+    {
+      "id": "EXA-D03-2026-10",
+      "dojo_id": "D03",
+      "data_exame": "2026-10-04",
+      "avaliadores": ["S01", "S04", "S05"],
+      "status": "agendado"
+    }
+  ]
+}
