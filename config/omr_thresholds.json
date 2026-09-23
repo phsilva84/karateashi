@@ -1,6 +1,9 @@
 {
-  "versao": "1.0",
-  "limiar_vazio_max": 0.20,
-  "limiar_suspeito_max": 0.40,
-  "observacoes": "Valores da Fase 00: 0-20% vazio, 20-40% suspeito, >40% marcado."
+  "versao": "2.0",
+  "limiar_marcado_taxa": 0.30,
+  "limiar_marcado_blob": 0.25,
+  "limiar_vazio_taxa": 0.15,
+  "limiar_vazio_blob": 0.08,
+  "janela_busca_mm": 3.0,
+  "recuo_interior": 0.20
 }
