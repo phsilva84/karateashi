@@ -77,15 +77,14 @@ def _ordem_canonica(chave: str) -> tuple[int, int]:
 
 
 def montar_observacao(marcadas: list[str]) -> str:
-    """Converte chaves marcadas na observação legível do relatório.
+    """Converte chaves marcadas no texto da observação (sem prefácios).
 
-    Ex.: ["obs_p1", "obs_m2", "obs_m6"] ->
-         "Ótimo! Boa execucao dos Kihons. A melhorar: Dificuldade no
-          Kata; Nervosismo Constante."
+    Ex.: ["obs_p1", "obs_m2"] ->
+         "Boa execucao dos Kihons; Dificuldade no Kata"
 
-    Ordena por coluna (Ótimo! antes de A Melhorar) e, dentro de cada
-    coluna, pela ordem impressa na folha. Chaves desconhecidas são
-    ignoradas com aviso (proteção contra vocabulário divergente).
+    Ordena pelas colunas da folha (BOM! antes de A MELHORAR) e, dentro de
+    cada coluna, pela ordem impressa. Chaves desconhecidas são ignoradas
+    com aviso (proteção contra vocabulário divergente).
     """
     positivas = sorted((c for c in marcadas if c in OBS_POSITIVAS),
                        key=_ordem)
@@ -96,12 +95,9 @@ def montar_observacao(marcadas: list[str]) -> str:
     if desconhecidas:
         log.warning("chaves de observação desconhecidas ignoradas: %s",
                     desconhecidas)
-    partes = []
-    if positivas:
-        partes.append("Ótimo! " + "; ".join(OBS_POSITIVAS[c] for c in positivas))
-    if melhorar:
-        partes.append("A melhorar: " + "; ".join(OBS_MELHORAR[c] for c in melhorar))
-    return ". ".join(partes)
+    textos = [OBS_POSITIVAS[c] for c in positivas]
+    textos += [OBS_MELHORAR[c] for c in melhorar]
+    return "; ".join(textos)
 
 
 def merge_no_json(resultado: dict) -> dict:
