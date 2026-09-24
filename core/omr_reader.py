@@ -1,5 +1,4 @@
 """core/omr_reader.py — Leitura OMR enxuta por busca local (Karate-Ashi v3.14).
-
 Contrato (steering fase-03 / playbook OMR):
 - PROIBIDO fiduciais/cruzes impressos. Desalinhamento resolvido por BUSCA
   LOCAL: para cada balão esperado (x_mm, y_mm, r_mm), achar o ANEL impresso
@@ -9,34 +8,34 @@ Contrato (steering fase-03 / playbook OMR):
 - Scan ja A4 -> redimensiona direto para 3508x2480; warp so se nao for A4.
 - Medicao: recuo de 20% do raio, Otsu local, taxa de escuros + maior blob.
   marcado: taxa >= 0.30 E blob >= 0.25 | vazio: taxa < 0.15 E blob < 0.08.
-- Sem anel na janela -> "suspeito" (auditoria visual, nunca assume marcado).
+- VARREDURA de tinta (incidente 'disco_sem_anel') usada SOMENTE na presenca
+  (balao isolado, janela +-5mm, limiares altos). Criterios/obs: sem anel ->
+  'suspeito' (o anel impresso de balao vazio vizinho viraria falso positivo).
+- CALIBRACAO DE OFFSET GLOBAL (mediana, estratificada) + OFFSET POR LINHA
+  (mediana dos aneis do miolo da propria linha do aluno) — absorve skew de
+  impressao/scan com deslocamento diferente na borda (coluna da presenca).
 - Presenca nao marcada -> AUSENTE (sem frequencias).
 - Regra de arquitetura: maximo ~400 linhas.
 """
 from __future__ import annotations
-
 import re
 from pathlib import Path
-
 import cv2
 import numpy as np
-
 from core import observacoes
 from core.config import QUESITOS, carregar_json
-
 A4_W_PX, A4_H_PX = 3508, 2480
 A4_W_MM, A4_H_MM = 297.0, 210.0
 RAZAO_MIN, RAZAO_MAX = 1.30, 1.55
 JANELA_MM = 3.0          # janela da busca local (mm)
+JANELA_PRESENCA_MM = 5.0 # janela ampliada p/ presenca (balao decisivo)
 RECUO = 0.20             # recuo do interior de medicao (% do raio)
 LIM_MARCADO = (0.30, 0.25)   # (taxa de escuros, maior blob)
 LIM_VAZIO = (0.15, 0.08)
 FREQ_BALOES = 5          # baloes de frequencia 1..5 por criterio
-
+_OFFSET_MAX_MM = 5.0     # limite de seguranca da calibracao de offset
 _QR_EXAME = re.compile(r"KA\|AVALIADOR=([^|]+)\|DOJO=([^|]+)\|EXAME=([^|]+)")
 _QR_ALUNO = re.compile(r"KA\|ALUNO=([^|]+)\|FAIXA=([^|]+)")
-
-
 # ---------------------------------------------------------------------------
 # Imagem
 # ---------------------------------------------------------------------------
@@ -54,20 +53,14 @@ def carregar_imagem(caminho: Path) -> np.ndarray:
     if img is None:
         raise ValueError(f"nao foi possivel ler a imagem: {caminho}")
     return img
-
-
 def _cinza(img: np.ndarray) -> np.ndarray:
     return img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-
 def _ordenar_pontos(pts: np.ndarray) -> np.ndarray:
     """4 cantos (contorno) na ordem TL, TR, BR, BL."""
     soma = pts.sum(axis=1)
     diff = np.diff(pts, axis=1).ravel()
     return np.float32([pts[np.argmin(soma)], pts[np.argmin(diff)],
                        pts[np.argmax(soma)], pts[np.argmax(diff)]])
-
-
 def normalizar_a4(img: np.ndarray) -> np.ndarray:
     """Scan flatbed (~A4) -> resize direto; foto -> warp de 4 pontos."""
     h, w = img.shape[:2]
@@ -91,21 +84,15 @@ def normalizar_a4(img: np.ndarray) -> np.ndarray:
                           [A4_W_PX, A4_H_PX], [0, A4_H_PX]])
     M = cv2.getPerspectiveTransform(origem, destino)
     return cv2.warpPerspective(img, M, (A4_W_PX, A4_H_PX))
-
-
 # ---------------------------------------------------------------------------
 # QR
 # ---------------------------------------------------------------------------
 def _ler_qrs(imagem: np.ndarray) -> list[tuple[str, tuple[int, int, int, int]]]:
     """Decodifica QRs -> [(payload, rect (x, y, w, h))]. pyzbar primeiro.
-
-    Variantes testadas: cinza nativo, CINZA 2X (QR pequeno em scan/render
-    de 300dpi costuma falhar em tamanho nativo), e binarizacao Otsu.
-    O rect e devolvido em coordenadas da imagem ORIGINAL.
+    Variantes: cinza nativo, CINZA 2X (QR pequeno), binarizacao Otsu.
     """
     cinza = _cinza(imagem)
     h, w = cinza.shape[:2]
-    escala = 1.0
     saida: list[tuple[str, tuple[int, int, int, int]]] = []
     try:
         from pyzbar import pyzbar
@@ -118,7 +105,6 @@ def _ler_qrs(imagem: np.ndarray) -> list[tuple[str, tuple[int, int, int, int]]]:
             for qr in pyzbar.decode(variante):
                 texto = qr.data.decode("utf-8", "replace")
                 x, y, wq, hq = qr.rect
-                # converte o rect de volta para a escala original
                 x = int(x / fator)
                 y = int(y / fator)
                 wq = int(wq / fator)
@@ -136,15 +122,11 @@ def _ler_qrs(imagem: np.ndarray) -> list[tuple[str, tuple[int, int, int, int]]]:
             saida.append((texto, (int(x0), int(y0),
                                   int(x1 - x0), int(y1 - y0))))
     return saida
-
-
 def _payload_por_prefixo(imagem: np.ndarray, prefixo: str) -> str | None:
     for texto, _ in _ler_qrs(imagem):
         if texto.startswith(f"KA|{prefixo}"):
             return texto
     return None
-
-
 def _ler_alunos_do_qr(a4: np.ndarray) -> list[tuple[str, str]]:
     """Qrs KA|ALUNO=..|FAIXA=.. ordenados por posicao x (linha 1..3)."""
     alunos = []
@@ -154,14 +136,17 @@ def _ler_alunos_do_qr(a4: np.ndarray) -> list[tuple[str, str]]:
             alunos.append((x, m.group(1), m.group(2)))
     alunos.sort(key=lambda t: t[0])
     return [(aluno_id, faixa) for _, aluno_id, faixa in alunos]
-
-
 # ---------------------------------------------------------------------------
 # Busca local + medicao
 # ---------------------------------------------------------------------------
 def _achar_anel(cinza: np.ndarray, cx: float, cy: float, r: float,
                 janela_px: float) -> tuple[float, float, float] | None:
-    """Busca local +-janela_px pelo anel circular impresso (auto-calibrante)."""
+    """Busca local +-janela_px pelo circulo/anel impresso (auto-calibrante).
+
+    Tolera anel vazio, DISCO SOLIDO (preenchido a mao) com fechamento
+    morfologico, e disco truncado via maior blob circular. O raio do
+    fallback e limitado a r*2.0 para NAO aceitar o fundo/blob gigante.
+    """
     x0, y0 = max(0, int(cx - janela_px)), max(0, int(cy - janela_px))
     x1 = min(cinza.shape[1], int(cx + janela_px + 1))
     y1 = min(cinza.shape[0], int(cy + janela_px + 1))
@@ -170,30 +155,53 @@ def _achar_anel(cinza: np.ndarray, cx: float, cy: float, r: float,
         return None
     _, binaria = cv2.threshold(recorte, 0, 255,
                                cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    binaria = cv2.morphologyEx(
+        binaria, cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    raio_min, raio_max = r * 0.35, r * 2.0
+
     contornos, _ = cv2.findContours(binaria, cv2.RETR_LIST,
                                     cv2.CHAIN_APPROX_SIMPLE)
     melhor: tuple[float, float, float] | None = None
     melhor_dist = float("inf")
     for c in contornos:
-        if len(c) < 10:
+        if len(c) < 8:
             continue
         per = cv2.arcLength(c, True)
         area = cv2.contourArea(c)
         if area <= 0 or per <= 0:
             continue
         circularidade = 4 * np.pi * area / (per * per)
-        if circularidade < 0.6:          # nao e um circulo
+        if circularidade < 0.40:
             continue
         (mx, my), mr = cv2.minEnclosingCircle(c)
-        if mr < r * 0.5 or mr > r * 2.0:  # raio plausivel
+        if mr < raio_min or mr > raio_max:
             continue
         dist = abs(mx + x0 - cx) + abs(my + y0 - cy)
         if dist < melhor_dist:
             melhor_dist = dist
             melhor = (mx + x0, my + y0, mr)
-    return melhor
+    if melhor is not None:
+        return melhor
 
-
+    # fallback: maior componente conectada (disco cheio/truncado)
+    n, _, stats, _ = cv2.connectedComponentsWithStats(binaria)
+    candidatos = [(i, stats[i, cv2.CC_STAT_AREA]) for i in range(1, n)]
+    if not candidatos:
+        return None
+    i = max(candidatos, key=lambda t: t[1])[0]
+    w = stats[i, cv2.CC_STAT_WIDTH]
+    h = stats[i, cv2.CC_STAT_HEIGHT]
+    if max(w, h) > 2.5 * min(w, h):       # blob alongado (texto) — ignora
+        return None
+    centro = (x0 + stats[i, cv2.CC_STAT_LEFT] + w / 2.0,
+              y0 + stats[i, cv2.CC_STAT_TOP] + h / 2.0)
+    raio = max(w, h) / 2.0
+    if raio < raio_min or raio > raio_max:
+        return None
+    if abs(centro[0] - cx) + abs(centro[1] - cy) > janela_px + r:
+        return None
+    return (centro[0], centro[1], raio)
 def _medir(cinza: np.ndarray, cx: float, cy: float, r: float
            ) -> tuple[float, float]:
     """Taxa de escuros + maior blob no interior (recuo de 20% do raio)."""
@@ -220,8 +228,6 @@ def _medir(cinza: np.ndarray, cx: float, cy: float, r: float
         areas = np.bincount(rotulos.ravel())
         blob = float(areas[1:].max()) / dentro
     return taxa, blob
-
-
 def classificar_checkbox(taxa: float, blob: float) -> str:
     """marcado / vazio / suspeito — limiares validados (steering fase-03)."""
     if taxa >= LIM_MARCADO[0] and blob >= LIM_MARCADO[1]:
@@ -229,21 +235,80 @@ def classificar_checkbox(taxa: float, blob: float) -> str:
     if taxa < LIM_VAZIO[0] and blob < LIM_VAZIO[1]:
         return "vazio"
     return "suspeito"
+def _calibrar_offset(cinza: np.ndarray, baloes: list[dict], escala: float,
+                     janela_px: float) -> tuple[float, float]:
+    """Offset GLOBAL (mediana, amostra distribuida pela folha)."""
+    passo = max(1, len(baloes) // 30)
+    amostra = baloes[::passo][:36]
+    desvios: list[tuple[float, float]] = []
+    for balao in amostra:
+        anel = _achar_anel(cinza, balao["x_mm"] * escala,
+                           balao["y_mm"] * escala,
+                           balao["r_mm"] * escala, janela_px)
+        if anel is None:
+            continue
+        desvios.append(((anel[0] - balao["x_mm"] * escala) / escala,
+                        (anel[1] - balao["y_mm"] * escala) / escala))
+    if len(desvios) < 8:
+        return 0.0, 0.0
+    dx = float(np.median([d[0] for d in desvios]))
+    dy = float(np.median([d[1] for d in desvios]))
+    if abs(dx) > _OFFSET_MAX_MM or abs(dy) > _OFFSET_MAX_MM:
+        return 0.0, 0.0
+    return dx, dy
+def _offset_por_linha(cinza: np.ndarray, baloes_linha: list[dict],
+                      escala: float, janela_px: float,
+                      dx0: float, dy0: float) -> tuple[float, float]:
+    """Offset LOCAL da linha do aluno (mediana dos aneis do proprio miolo).
 
-
+    Absorve skew de impressao/scan cujo deslocamento difere na borda
+    (coluna da presenca). Cai para o offset global se amostra insuficiente
+    ou deslocamento improvável.
+    """
+    desvios: list[tuple[float, float]] = []
+    for b in baloes_linha:
+        anel = _achar_anel(cinza, (b["x_mm"] + dx0) * escala,
+                           (b["y_mm"] + dy0) * escala,
+                           b["r_mm"] * escala, janela_px)
+        if anel is None:
+            continue
+        desvios.append(((anel[0] - (b["x_mm"] + dx0) * escala) / escala,
+                        (anel[1] - (b["y_mm"] + dy0) * escala) / escala))
+    if len(desvios) < 5:
+        return dx0, dy0
+    dx = float(np.median([d[0] for d in desvios]))
+    dy = float(np.median([d[1] for d in desvios]))
+    if abs(dx) > _OFFSET_MAX_MM or abs(dy) > _OFFSET_MAX_MM:
+        return dx0, dy0
+    return dx0 + dx, dy0 + dy
 def _estado_do_balao(cinza: np.ndarray, balao: dict, escala: float,
-                     janela_px: float) -> tuple[str, list[str]]:
-    """Busca local pelo anel; sem anel -> 'suspeito' (ja, nunca marcado)."""
-    cx = balao["x_mm"] * escala
-    cy = balao["y_mm"] * escala
+                     janela_px: float, dx_mm: float = 0.0,
+                     dy_mm: float = 0.0,
+                     janela_mm: float | None = None,
+                     usar_varredura: bool = False) -> tuple[str, list[str]]:
+    """Busca local pelo anel (com offset). Sem anel: criterios/obs ->
+    'suspeito' (nunca marca); presenca (usar_varredura) varre a janela
+    ampliada por tinta com limiares ALTOS ('disco_sem_anel' so se houver
+    disco de verdade)."""
+    cx = (balao["x_mm"] + dx_mm) * escala
+    cy = (balao["y_mm"] + dy_mm) * escala
     r = balao["r_mm"] * escala
-    anel = _achar_anel(cinza, cx, cy, r, janela_px)
-    if anel is None:
+    jpx = (janela_mm if janela_mm is not None else JANELA_MM) * escala
+    anel = _achar_anel(cinza, cx, cy, r, jpx)
+    if anel is not None:
+        taxa, blob = _medir(cinza, anel[0], anel[1], anel[2])
+        return classificar_checkbox(taxa, blob), []
+    if not usar_varredura:
         return "suspeito", ["anel_nao_encontrado"]
-    taxa, blob = _medir(cinza, anel[0], anel[1], anel[2])
-    return classificar_checkbox(taxa, blob), []
-
-
+    passo = max(int(1.5 * escala), 4)
+    raio_l = int(jpx)
+    limite_taxa, limite_blob = 0.40, 0.32
+    for ox in range(-raio_l, raio_l + 1, passo):
+        for oy in range(-raio_l, raio_l + 1, passo):
+            taxa, blob = _medir(cinza, cx + ox, cy + oy, r)
+            if taxa >= limite_taxa and blob >= limite_blob:
+                return "marcado", ["disco_sem_anel"]
+    return "suspeito", ["anel_nao_encontrado"]
 def _frequencia(estados: list[str]) -> tuple[int, list[str]]:
     """5 baloes (1..5): 1 marcado -> indice; 0 -> 0; >1 -> ambiguidade."""
     marcados = [i for i, e in enumerate(estados) if e == "marcado"]
@@ -252,8 +317,6 @@ def _frequencia(estados: list[str]) -> tuple[int, list[str]]:
     if not marcados:
         return 0, []
     return 0, ["ambiguidade_frequencia"]
-
-
 def _anular_contradicoes(marcadas: set[str], incidentes: list[str]) -> None:
     """Anula pares obs_pN <-> obs_mN quando ambos marcados (v2col-3.0)."""
     for i in range(1, 7):
@@ -262,8 +325,6 @@ def _anular_contradicoes(marcadas: set[str], incidentes: list[str]) -> None:
             marcadas.discard(p)
             marcadas.discard(m)
             incidentes.append(f"contradicao:{p}/{m}")
-
-
 # ---------------------------------------------------------------------------
 # Coordenadas (contrato com tools/pre_exame.py)
 # ---------------------------------------------------------------------------
@@ -274,8 +335,6 @@ def _carregar_coordenadas(pasta: Path, exame: str,
     if not candidatos:
         return None
     return carregar_json(candidatos[0])
-
-
 # ---------------------------------------------------------------------------
 # Fluxo completo
 # ---------------------------------------------------------------------------
@@ -283,23 +342,19 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
                      faixa: str | None = None,
                      origem: str | None = None) -> list[dict]:
     """Folha OMR -> lista de JSONs v2.0 (um por aluno).
-
     base_cfg: pasta config/ (entao output/pre_exame e a pasta irma).
     Os QRs sao lidos na imagem ORIGINAL; a medicao roda na A4 normalizada.
     """
     imagem = carregar_imagem(caminho_imagem)
-
     m = _QR_EXAME.search(_payload_por_prefixo(imagem, "AVALIADOR") or "")
     if not m:
         raise ValueError("QR do exame nao encontrado "
                          "(KA|AVALIADOR=..|DOJO=..|EXAME=..)")
     avaliador, dojo, exame = m.group(1), m.group(2), m.group(3)
-
     a4 = normalizar_a4(imagem)
     cinza = _cinza(a4)
     escala = A4_W_PX / A4_W_MM
     janela_px = JANELA_MM * escala
-
     raiz = (base_cfg.parent if base_cfg and base_cfg.name == "config"
             else Path("."))
     coords = _carregar_coordenadas(raiz / "output" / "pre_exame",
@@ -309,17 +364,37 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
             f"JSON de coordenadas nao encontrado em output/pre_exame/ "
             f"({exame}_{avaliador}_*_coordenadas.json). Gere a folha com "
             f"tools/pre_exame.py e digitalize o PDF gerado.")
-
     alunos_qr = _ler_alunos_do_qr(a4)
+    # Calibra o deslocamento global da impressao/scan (mediana, robusta)
+    amostra: list[dict] = []
+    for aluno in coords["alunos"]:
+        amostra.append(aluno["presenca"])
+        for baloes in aluno.get("frequencias", {}).values():
+            amostra.extend(baloes)
+    dx_mm, dy_mm = _calibrar_offset(cinza, amostra, escala, janela_px)
     resultados = []
     for aluno in coords["alunos"]:
         aluno_id = aluno["id"]
         faixa_aluno = (faixa or aluno.get("faixa") or "branca").strip().lower()
         incidentes = ["origem:" + (origem or "desconhecida")]
-
-        # Presenca: so 'marcado' conta como PRESENTE
+        if dx_mm or dy_mm:
+            incidentes.append(
+                f"calibracao_offset:dx={dx_mm:.2f},dy={dy_mm:.2f}")
+        # Offset LOCAL da linha (absorve skew da borda esquerda)
+        baloes_linha = [aluno["presenca"]]
+        for baloes in aluno.get("frequencias", {}).values():
+            baloes_linha.extend(baloes)
+        baloes_linha.extend(aluno.get("observacoes", {}).values())
+        dx_l, dy_l = _offset_por_linha(cinza, baloes_linha, escala,
+                                       janela_px, dx_mm, dy_mm)
+        if (dx_l, dy_l) != (dx_mm, dy_mm):
+            incidentes.append(
+                f"calibracao_offset_linha:dx={dx_l:.2f},dy={dy_l:.2f}")
+        # Presenca: so 'marcado' conta como PRESENTE (janela ampliada + varredura)
         estado_p, inc = _estado_do_balao(cinza, aluno["presenca"],
-                                         escala, janela_px)
+                                         escala, janela_px, dx_l, dy_l,
+                                         janela_mm=JANELA_PRESENCA_MM,
+                                         usar_varredura=True)
         incidentes.extend(f"presenca:{i}" for i in inc)
         if estado_p != "marcado":
             resultados.append({
@@ -336,7 +411,6 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
                 "incidentes_auditoria": incidentes,
             })
             continue
-
         # Frequencias por criterio (5 baloes 1..5)
         avaliacoes: dict[str, dict] = {q: {"frequencias": {},
                                            "observacao": ""}
@@ -347,24 +421,24 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
                 continue
             estados = []
             for balao in baloes:
-                estado, inc = _estado_do_balao(cinza, balao, escala, janela_px)
+                estado, inc = _estado_do_balao(cinza, balao, escala,
+                                               janela_px, dx_l, dy_l)
                 estados.append(estado)
                 incidentes.extend(f"{chave}:{i}" for i in inc)
             freq, inc = _frequencia(estados)
             incidentes.extend(f"{chave}:{i}" for i in inc)
             if freq > 0:
                 avaliacoes[quesito]["frequencias"][criterio] = freq
-
         # Observacoes do rodape (obs_p1..p6 / obs_m1..m6)
         obs_marcadas = set()
         for chave, balao in aluno.get("observacoes", {}).items():
-            estado, inc = _estado_do_balao(cinza, balao, escala, janela_px)
+            estado, inc = _estado_do_balao(cinza, balao, escala,
+                                           janela_px, dx_l, dy_l)
             incidentes.extend(f"{chave}:{i}" for i in inc)
             if estado == "marcado":
                 obs_marcadas.add(chave)
         _anular_contradicoes(obs_marcadas, incidentes)
         obs_lista = sorted(obs_marcadas)
-
         resultados.append({
             "metadados": {"exame_id": exame, "avaliador_id": avaliador,
                           "dojo_id": dojo, "aluno_id": aluno_id,

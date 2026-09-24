@@ -18,9 +18,11 @@ Cenarios:
 - T03 (AUSENTE): SEM presenca, mas com frequencia e obs marcadas -> AUSENTE,
   sem avaliacao (regra: presenca nao marcada ignora tudo).
 
-Anti-flake do QR: se o pyzbar nao decodificar o QR do exame no render
-(QR pequeno/baixo contraste), a funcao _garantir_qr_exame re-encoda o MESMO
-payload do pre_exame na posicao correta e segue o teste.
+Os baloes sao preenchidos com DISCO QUASE CHEIO (0.95 do raio), simulando o
+preenchimento a mao com caneta (caso real) — o leitor precisa tolerar isso.
+
+Anti-flake do QR: se o pyzbar nao decodificar o QR do exame no render,
+_garantir_qr_exame re-encoda o MESMO payload do pre_exame na posicao correta.
 
 Uso:
   python tools/preencher_teste_completo.py [--avaliador S01] [--saida output/scans]
@@ -64,16 +66,17 @@ def _renderizar(pdf_path: Path) -> np.ndarray:
 
 
 def _pintar_balao(img, cinza, balao, escala, janela_px):
-    """Acha o anel real (busca local) e pinta o interior (simula caneta)."""
+    """Acha o anel real e pinta o INTERIOR QUASE TODO (0.95 do raio) —
+    simula o preenchimento a mao com caneta (disco solido)."""
     ex = balao["x_mm"] * escala
     ey = balao["y_mm"] * escala
     r = balao["r_mm"] * escala
     anel = omr_reader._achar_anel(cinza, ex, ey, r, janela_px)
     if anel is None:
-        cx, cy, raio = int(ex), int(ey), max(int(r), 2)   # fallback
+        cx, cy, raio = int(ex), int(ey), max(int(r), 2)   # fallback central
     else:
         cx, cy, raio = (int(v) for v in anel)
-    cv2.circle(img, (cx, cy), max(int(raio * 0.55), 3), (0, 0, 0), -1)
+    cv2.circle(img, (cx, cy), max(int(raio * 0.95), 3), (0, 0, 0), -1)
 
 
 def _garantir_qr_exame(img, coords, escala):
@@ -81,19 +84,16 @@ def _garantir_qr_exame(img, coords, escala):
 
     Se o pyzbar nao decodificar o QR renderizado (flakiness de render de
     300dpi), LIMPA a regiao do QR (branco, com folga) e RE-ENCODA o MESMO
-    payload do pre_exame na posicao EXATA das constantes da folha
-    (QR_CAB_X=275, QR_CAB_Y=2, QR_CAB_TAM=12), com box_size adequado para
-    nao distorcer os modulos. Valida a decodificacao no final.
+    payload do pre_exame na posicao EXATA (x=275, y=2, 12mm), com box_size
+    adequado. Valida a decodificacao por _payload_por_prefixo.
     """
     payload = (f"KA|AVALIADOR={coords['avaliador_id']}|"
                f"DOJO={coords['dojo_id']}|EXAME={coords['exame']}")
     if omr_reader._payload_por_prefixo(img, "AVALIADOR") == payload:
         return img, False   # QR real decodificou — nada a fazer
 
-    # Posicao EXATA do QR do exame no pre_exame (QR_CAB_X / Y / TAM)
     x_mm, y_mm, lado_mm = 275.0, 2.0, 12.0
-    margem_mm = 3.0                            # folga p/ apagar o resto do velho
-
+    margem_mm = 3.0
     h, w = img.shape[:2]
     x0 = max(0, int((x_mm - margem_mm) * escala))
     y0 = max(0, int((y_mm - margem_mm) * escala))
@@ -101,19 +101,15 @@ def _garantir_qr_exame(img, coords, escala):
     y1 = min(h, int((y_mm + lado_mm + margem_mm) * escala))
     img[y0:y1, x0:x1] = 255                     # apaga o QR original/colisoes
 
-    # Gera o QR com box_size=4 -> modulos ~4px, sem resize agressivo
     import qrcode
     qr = qrcode.make(payload, box_size=4, border=4)
     qr_bgr = cv2.cvtColor(np.array(qr.convert("RGB")), cv2.COLOR_RGB2BGR)
-
     x0q = int(x_mm * escala)
     y0q = int(y_mm * escala)
     lado_px = int(lado_mm * escala)
     qr_resized = cv2.resize(qr_bgr, (lado_px, lado_px),
                             interpolation=cv2.INTER_LINEAR)
     img[y0q:y0q + lado_px, x0q:x0q + lado_px] = qr_resized
-
-    # Ava-se o resultado (se ainda falhar, o upscale 2x do _ler_qrs cobre)
     return img, True
 
 
@@ -328,7 +324,7 @@ def main() -> int:
         print(f"        lido -> presenca={r['presenca']} | "
               f"n_freq={len(_freq_achatadas(r))} | "
               f"obs={sorted(r['observacoes_marcadas'])} | "
-              f"inc={[i for i in r.get('incidentes_auditoria', []) if i != 'origem:scanner']}")
+              f"inc={[i for i in r.get('incidentes_auditoria', []) if i not in ('origem:scanner',) and not i.startswith('calibracao_offset')]}")
 
     print(f"\nResumo: {total - erros}/{total} alunos OK"
           + ("" if erros == 0 else f" | {erros} com falhas"))
