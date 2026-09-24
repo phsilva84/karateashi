@@ -39,10 +39,14 @@ def test_alunos_ativos_so_com_faixas_suportadas():
                 f"faixa_pretendida não suportada: {aluno['faixa_pretendida']}"
             )
 
-def test_registro_a08_inativo():
-    """O registro de teste com meta Roxa deve estar inativo."""
+def test_nenhum_aluno_com_faixa_pretendida_nao_suportada():
+    """Trava da Fase 1: o cadastro não pode ter meta de faixa não suportada
+    (roxa/marrom/preta são placeholder, sem matriz de critérios)."""
     alunos = json.loads(
         (RAIZ / "data" / "cadastro" / "alunos.json").read_text(encoding="utf-8")
     )["alunos"]
-    a08 = next(a for a in alunos if a["id"] == "A08")
-    assert a08["ativo"] is False, "A08 (Teste Azul / meta Roxa) precisa estar inativo"
+    suportadas = _faixas_suportadas()
+    metas = {a.get("faixa_pretendida", "").strip().lower() for a in alunos}
+    nao_suportadas = metas - suportadas - {""}
+    assert nao_suportadas == set(), (
+        f"faixa(s) pretendida(s) sem matriz de critérios: {nao_suportadas}")

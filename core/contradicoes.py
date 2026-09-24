@@ -1,12 +1,16 @@
 """core/contradicoes.py — Contradições de observação (Karate-Ashi v2col-3.0).
 
 O MESMO avaliador (uma folha) não pode marcar, no mesmo quesito, o par
-contraditório: um 'Ótimo!' e o 'A melhorar' oposto. Quando marca, AS DUAS
-observações são anuladas e a contradição vai para o relatório geral
+contraditório: um 'Bom!' (positiva) e o 'A melhorar' oposto. Quando marca,
+AS DUAS observações são anuladas e a contradição vai para o relatório geral
 (campo 'contradicoes_observacoes') para o mestre refinar com o avaliador.
 
 Pares data-driven: config/observacoes_contradicoes.json (o mestre ajusta
 sem tocar no código).
+
+NOTA (contrato): 'otimo' é o IDENTIFICADOR técnico do par (usado no JSON
+custom e nos testes); o TEXTO exposto (otimo_texto) vem do vocabulário em
+core/observacoes.py, que usa 'Bom'/'Boa' (sem prefácio 'Ótimo!').
 """
 from __future__ import annotations
 
@@ -18,26 +22,28 @@ from core import observacoes  # vocabulário único (fonte comum da folha)
 
 log = logging.getLogger("karate-ashi.contradicoes")
 
-# Pares padrão derivados do vocabulário (p = Ótimo! | m = A melhorar).
+# Pares padrão 6+6 homólogos (p = Bom! | m = A melhorar) — alinhados ao
+# vocabulário real (obs_p1..p6 / obs_m1..m6) e à folha (rodapé 6+6).
 PARES_PADRAO = [
-    {"topico": "execução técnica", "otimo": "obs_p1", "melhorar": "obs_m6"},
-    {"topico": "bases / postura",  "otimo": "obs_p2", "melhorar": "obs_m1"},
-    {"topico": "foco / olhar",     "otimo": "obs_p4", "melhorar": "obs_m4"},
-    {"topico": "kata",             "otimo": "obs_p7", "melhorar": "obs_m7"},
-    {"topico": "kihon",            "otimo": "obs_p8", "melhorar": "obs_m8"},
+    {"topico": "kihon",      "otimo": "obs_p1", "melhorar": "obs_m1"},
+    {"topico": "kata",       "otimo": "obs_p2", "melhorar": "obs_m2"},
+    {"topico": "bunkai",     "otimo": "obs_p3", "melhorar": "obs_m3"},
+    {"topico": "kumite",     "otimo": "obs_p4", "melhorar": "obs_m4"},
+    {"topico": "técnica",    "otimo": "obs_p5", "melhorar": "obs_m5"},
+    {"topico": "desempenho", "otimo": "obs_p6", "melhorar": "obs_m6"},
 ]
 
 VOCAB = {**observacoes.OBS_POSITIVAS, **observacoes.OBS_MELHORAR}
 
+
 def carregar_pares(base_cfg: Path) -> list[dict]:
     """União dos pares padrão com os customizados (item 7 — Fase 3).
 
-    Antes, o JSON custom SUBSTITUÍA os pares padrão: bastava o mestre criar
-    um par novo e os padrão sumiam do relatório. Agora é união (set union):
+    Antes, o JSON custom SUBSTITUÍA os pares padrão. Agora é união:
     - o custom pode ADICIONAR pares novos;
-    - se redefinir um par com as MESMAS chaves (otimo/melhorar), a versão
-      custom prevalece (sem duplicar);
-    - os padrão não citados no custom continuam valendo.
+    - se redefinir um par com as MESMAS chaves (otimo/melhorar), o custom
+      prevalece (sem duplicar);
+    - os padrão não citados continuam valendo.
     A deduplicação usa a chave (otimo, melhorar) — identidade funcional.
     """
     pares_por_chave: dict[tuple[str, str], dict] = {
@@ -49,8 +55,9 @@ def carregar_pares(base_cfg: Path) -> list[dict]:
             custom = json.load(fh).get("pares", [])
         for par in custom:
             chave = (par.get("otimo"), par.get("melhorar"))
-            pares_por_chave[chave] = par  # custom redefine a mesma chave, se houver
+            pares_por_chave[chave] = par
     return list(pares_por_chave.values())
+
 
 def detectar(marcadas: list[str], pares: list[dict]) -> tuple[list[str], list[dict]]:
     """Anula pares contraditórios e devolve (limpas, contradicoes)."""
@@ -72,6 +79,7 @@ def detectar(marcadas: list[str], pares: list[dict]) -> tuple[list[str], list[di
     if contradicoes:
         log.warning("contradições anuladas: %s", contradicoes)
     return limpas, contradicoes
+
 
 def consolidar(resultados: list[dict]) -> list[dict]:
     """Agrega contradições de N JSONs para o relatório geral (por avaliador)."""

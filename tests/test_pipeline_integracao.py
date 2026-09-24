@@ -1,6 +1,6 @@
 """tests/test_pipeline_integracao.py — OMR → agregação → engine (CI)."""
-
 import json
+from pathlib import Path
 
 import pytest
 
@@ -21,13 +21,21 @@ def _folha(aluno="A01", avaliador="S01", faixa="branca",
                       "faixa": faixa, "exame_id": "EXA-TESTE-2026"},
         "aluno": {"id": aluno, "faixa_atual": faixa.upper()},
         "avaliacoes": {
-            q: {"frequencias": dict(frequencias or {}), "observacao": ""}
+            q: {"frequencias": (frequencias or {}).get(q, {}),
+                "observacao": ""}
             for q in ["kihon", "kata", "bunkai", "kumite"]
         },
         "observacoes_marcadas": [],
         "observacao_montada": "",
         "origem": origem,
     }
+
+
+def _gravar(pasta, folha):
+    """Grava uma folha como JSON na pasta (nome no padrão do ingest)."""
+    caminho = pasta / f"folha_{folha['metadados']['avaliador_id']}.json"
+    caminho.write_text(json.dumps(folha), encoding="utf-8")
+    return caminho
 
 
 def test_converter_posicao_para_criterio_pela_matriz():
@@ -40,9 +48,7 @@ def test_converter_posicao_para_criterio_pela_matriz():
     ]}}}
     convertidas = converter_frequencias_omr(folha, matriz)
     assert convertidas["kihon"] == {
-        "base_incorreta": 2,
-        "movimento_sem_carga": 1,
-    }
+        "base_incorreta": 2, "movimento_sem_carga": 1}
 
 
 def test_carregar_jsons_omr_ignora_resumo(tmp_path):
@@ -61,19 +67,11 @@ def test_agregar_por_aluno(tmp_path):
     assert len(grupos["A01"]) == 2
 
 
-def test_pipeline_omr_para_engine_sem_faltas(base_cfg):
+def test_pipeline_omr_para_engine_sem_faltas(tmp_path, base_cfg):
     """3 avaliadores sem marcações → 100,0 e APROVADO."""
-    folhas = [_folha("A01", f"S0{i}") for i in (1, 2, 3)]
-    for f in folhas:
-        (tmp := __import__("tempfile").mkdtemp())
-    import shutil
-    from pathlib import Path
-    pasta = Path(tmp)
-    for f in folhas:
-        (pasta / f"folha_{f['metadados']['avaliador_id']}.json").write_text(
-            json.dumps(f), encoding="utf-8")
-    resultados = processar_folhas_omr(pasta, base_cfg)
-    shutil.rmtree(pasta, ignore_errors=True)
+    for i in (1, 2, 3):
+        _gravar(tmp_path, _folha("A01", f"S0{i}"))
+    resultados = processar_folhas_omr(tmp_path, base_cfg)
     assert len(resultados) == 1
     assert resultados[0]["aluno_id"] == "A01"
     assert resultados[0]["nota_final"] == 100.0
@@ -81,12 +79,11 @@ def test_pipeline_omr_para_engine_sem_faltas(base_cfg):
     assert resultados[0]["origens"] == ["scanner", "scanner", "scanner"]
 
 
-def test_pipeline_omr_para_engine_com_faltas(base_cfg):
+def test_pipeline_omr_para_engine_com_faltas(tmp_path, base_cfg):
     """1 avaliador marca 'c1' no kihon → a nota do kihon desconta (< 25,0)."""
-    folha = _folha("A01", "S01",
-                   frequencias={"kihon": {"c1": 2}})
-    resultados = processar_folhas_omr(
-        _escoar(folha), base_cfg)  # ver helper abaixo
+    _gravar(tmp_path, _folha("A01", "S01",
+                             frequencias={"kihon": {"c1": 2}}))
+    resultados = processar_folhas_omr(tmp_path, base_cfg)
     kihon = resultados[0]["quesitos"]["kihon"]
     assert kihon["nota"] < 25.0
     assert sum(d["fc"] for d in kihon["detalhes"].values()) == 2.0

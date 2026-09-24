@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from core.engine import carregar_faixa, processa_aluno
+from core import observacoes_automaticas
 
 
 def _indice_posicional(chave: str) -> int | None:
@@ -114,16 +115,17 @@ def montar_lote_engine(aluno_id: str, faixa_raw: str,
 def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
     """Fluxo completo: lê os JSONs do ingest, agrega por aluno e processa."""
     folhas = carregar_jsons_omr(pasta_omr)
-    matriz = carregar_faixa(cfg, "branca")  # default; a faixa real vem do QR
     resultados = []
     for aluno_id, avaliadores in agregar_por_aluno(folhas).items():
         faixa = (avaliadores[0].get("metadados", {}).get("faixa")
                  or "branca").strip().lower()
+        # carregar_faixa devolve o dict interno de QUESITOS (sem a chave
+        # "quesitos"); as funções do pipeline esperam o envelope do JSON.
+        matriz = {"quesitos": carregar_faixa(cfg, faixa)}
         lote = montar_lote_engine(aluno_id, faixa, avaliadores, matriz)
         resultado = processa_aluno(lote, cfg, faixa)
         resultado["aluno_id"] = aluno_id
         resultado["origens"] = [av.get("origem") for av in avaliadores]
-        # NOVO: observações automáticas derivadas das frequências do OMR
         resultado["observacoes_automaticas"] = gerar_obs_automaticas_do_aluno(
             avaliadores, cfg)
         resultados.append(resultado)
