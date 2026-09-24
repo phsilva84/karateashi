@@ -27,3 +27,5 @@ data/processed/
 
 # Logs
 *.log
+__pycache__/
+*.pyc
