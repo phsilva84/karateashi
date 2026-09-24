@@ -97,18 +97,33 @@ def normalizar_a4(img: np.ndarray) -> np.ndarray:
 # QR
 # ---------------------------------------------------------------------------
 def _ler_qrs(imagem: np.ndarray) -> list[tuple[str, tuple[int, int, int, int]]]:
-    """Decodifica QRs -> [(payload, rect (x, y, w, h))]. pyzbar primeiro."""
+    """Decodifica QRs -> [(payload, rect (x, y, w, h))]. pyzbar primeiro.
+
+    Variantes testadas: cinza nativo, CINZA 2X (QR pequeno em scan/render
+    de 300dpi costuma falhar em tamanho nativo), e binarizacao Otsu.
+    O rect e devolvido em coordenadas da imagem ORIGINAL.
+    """
     cinza = _cinza(imagem)
+    h, w = cinza.shape[:2]
+    escala = 1.0
     saida: list[tuple[str, tuple[int, int, int, int]]] = []
     try:
         from pyzbar import pyzbar
-        variantes = [cinza, cv2.threshold(cinza, 0, 255,
-                     cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]]
-        for v in variantes:
-            for qr in pyzbar.decode(v):
+        cinza_2x = cv2.resize(cinza, (w * 2, h * 2),
+                              interpolation=cv2.INTER_CUBIC)
+        _, otsu = cv2.threshold(cinza, 0, 255,
+                                cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        for variante, fator in ((cinza, 1.0), (cinza_2x, 2.0),
+                                (otsu, 1.0)):
+            for qr in pyzbar.decode(variante):
                 texto = qr.data.decode("utf-8", "replace")
-                x, y, w, h = qr.rect
-                saida.append((texto, (int(x), int(y), int(w), int(h))))
+                x, y, wq, hq = qr.rect
+                # converte o rect de volta para a escala original
+                x = int(x / fator)
+                y = int(y / fator)
+                wq = int(wq / fator)
+                hq = int(hq / fator)
+                saida.append((texto, (x, y, wq, hq)))
             if saida:
                 break
     except ImportError:
@@ -119,7 +134,7 @@ def _ler_qrs(imagem: np.ndarray) -> list[tuple[str, tuple[int, int, int, int]]]:
             x0, y0 = box.min(axis=0)
             x1, y1 = box.max(axis=0)
             saida.append((texto, (int(x0), int(y0),
-                                 int(x1 - x0), int(y1 - y0))))
+                                  int(x1 - x0), int(y1 - y0))))
     return saida
 
 
