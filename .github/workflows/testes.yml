@@ -47,7 +47,7 @@ jobs:
       - name: Parser de fallback TXT (Fase 02)
         run: pytest tests/test_parser.py -q --cov=core.parser --cov-fail-under=80
       - name: OMR - funções puras (Fase 03)
-        run: pytest tests/test_omr_validador.py -q --cov=core.omr_reader --cov-fail-under=80
+        run: pytest tests/test_omr_validador.py tests/test_omr_robustez.py -q --cov=core.omr_reader --cov-fail-under=80
       - name: Relatórios em 3 camadas (Fase 05)
         run: pytest tests/test_relatorios.py -q --cov=core.relatorios --cov-fail-under=80
       - name: Estrutura multi-faixa (Fase 06)
