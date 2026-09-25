@@ -10,9 +10,13 @@ Correções v2.0 (revisão da Fase 08):
 - Cópia seletiva por Dojo (não copia a pasta output inteira para todos).
 - Estado .ka-notify-state.json é persistido no Drive pelo workflow
   (pull antes, push depois) — idempotência entre execuções.
+
+Correção contrato v2.0 (canais genéricos):
+- canais.json migrou para modelo genérico (geral/mestres); o dojo NÃO gera
+  canal próprio. dojos.json é a fonte dos dojos, com canal_id OPCIONAL
+  (null → relatórios vão para o canal 'geral').
 """
 from __future__ import annotations
-
 import argparse
 import hashlib
 import json
@@ -25,26 +29,31 @@ import requests
 STATE_FILE = ".ka-notify-state.json"
 TAMANHO_BLOCO = 4000  # limite da API do Telegram por mensagem
 
+
 def md5(arquivo: Path) -> str:
     h = hashlib.md5()
     h.update(arquivo.read_bytes())
     return h.hexdigest()
+
 
 def carregar_estado(caminho: Path) -> dict:
     if caminho.exists():
         return json.loads(caminho.read_text(encoding="utf-8"))
     return {}
 
+
 def salvar_estado(caminho: Path, estado: dict) -> None:
     caminho.write_text(json.dumps(estado, indent=2, ensure_ascii=False),
                        encoding="utf-8")
 
+
 _chat_validados: set[str] = set()
+
 
 def validar_chat(bot_token: str, chat_id: str) -> bool:
     """Confirma que o chat_id existe antes de enviar (evita erro 400).
 
-    O resultado é cacheado por chat_id: a validação roda 1× por chat.
+    O resultado é cacheado por chat_id: a validação roda 1x por chat.
     """
     if chat_id in _chat_validados:
         return True
@@ -55,6 +64,7 @@ def validar_chat(bot_token: str, chat_id: str) -> bool:
         return False
     _chat_validados.add(chat_id)
     return True
+
 
 def enviar_telegram(bot_token: str, chat_id: str, texto: str) -> bool:
     """Envia o texto em blocos de até 4000 chars (limite da API)."""
@@ -71,6 +81,7 @@ def enviar_telegram(bot_token: str, chat_id: str, texto: str) -> bool:
             ok = False
     return ok
 
+
 def rclone_copy(origem: Path, destino: str) -> bool:
     proc = subprocess.run(
         ["rclone", "copy", str(origem), destino, "--transfers", "4"],
@@ -79,34 +90,46 @@ def rclone_copy(origem: Path, destino: str) -> bool:
         print(f"[ERRO] rclone: {proc.stderr[:200]}")
     return proc.returncode == 0
 
-def distribuir(output: Path, canais: dict, bot_token: str, base: Path) -> dict:
-    estado = carregar_estado(base / STATE_FILE)
 
-    # Relatórios 1 e 2 → grupo do Dojo + pasta do Dojo (cópia seletiva)
-    for dojo_id, canal in canais["dojos"].items():
+def distribuir(output: Path, canais: dict, dojos: list, bot_token: str,
+               base: Path) -> dict:
+    estado = carregar_estado(base / STATE_FILE)
+    canal_geral = canais["geral"]
+    canal_mestres = canais["mestres"]
+
+    # Relatórios 1 e 2 → canal do Dojo (se tiver canal_id) ou canal geral
+    for dojo in dojos:
+        dojo_id = dojo["id"]
+        chat_id = dojo.get("canal_id") or canal_geral["telegram_chat_id"]
+        drive_pasta = canal_geral["drive_pasta"]
+
         for rel in (output / f"relatorio_individual_{dojo_id}.txt",
                     output / f"relatorio_dojo_{dojo_id}.txt"):
             if not rel.exists():
-                print(f"[AVISO] {rel.name} não encontrado — pulando")
+                print(f"[AVISO] {rel.name} não encontrado — skip")
                 continue
+
             chave = f"{dojo_id}:{rel.name}"
             digest = md5(rel)
             if estado.get(chave) == digest:
-                print(f"[IDEMPOTENTE] {rel.name} já distribuído (hash inalterado)")
+                print(f"[IDEMPOTENTE] {rel.name} já distribuído "
+                      f"(hash inalterado)")
                 continue
-            if enviar_telegram(bot_token, canal["telegram_chat_id"],
+
+            if enviar_telegram(bot_token, chat_id,
                                rel.read_text(encoding="utf-8")):
                 estado[chave] = digest
-            rclone_copy(rel, canal["drive_pasta"])
+            rclone_copy(rel, drive_pasta)
 
     # Relatório 3 → canal dos Mestres + pasta Mestres
     rel_master = output / "relatorio_master.txt"
     if rel_master.exists():
-        m = canais["mestres"]
+        m = canal_mestres
         chave = f"mestres:{rel_master.name}"
         digest = md5(rel_master)
         if estado.get(chave) == digest:
-            print(f"[IDEMPOTENTE] {rel_master.name} já distribuído (hash inalterado)")
+            print(f"[IDEMPOTENTE] {rel_master.name} já distribuído "
+                  f"(hash inalterado)")
         else:
             if enviar_telegram(bot_token, m["telegram_chat_id"],
                                rel_master.read_text(encoding="utf-8")):
@@ -116,8 +139,9 @@ def distribuir(output: Path, canais: dict, bot_token: str, base: Path) -> dict:
     salvar_estado(base / STATE_FILE, estado)
     return estado
 
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Distribuição Karate-Ashi v2.0")
+    ap = argparse.ArgumentParser(description="Distribuição de relatórios")
     ap.add_argument("--output", type=Path, default=Path("output"))
     ap.add_argument("--config", type=Path, default=Path("config"))
     args = ap.parse_args()
@@ -128,9 +152,11 @@ def main() -> int:
         return 1
 
     canais = json.loads((args.config / "canais.json").read_text(encoding="utf-8"))
-    distribuir(args.output, canais, bot_token, args.config.parent)
+    dojos = json.loads((args.config / "dojos.json").read_text(encoding="utf-8"))["dojos"]
+    distribuir(args.output, canais, dojos, bot_token, args.config.parent)
     print("Distribuição concluída (idempotente).")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
