@@ -6,16 +6,24 @@ determinística usando o JSON de coordenadas e roda
 core.omr_reader.processar_imagem de ponta a ponta (QRs reais), comparando
 item a item com relatorio PASS/FAIL.
 
+SEMANTICA (dominio): o avaliador marca TODOS os baloes que observou; cada
+balao preenchido = 1 ocorrencia do erro. Frequencia do criterio =
+QUANTIDADE de baloes marcados (0..5). 5/5 e legitimo. NAO existe
+'ambiguidade' por multiplas marcacoes.
+
 Cenarios:
 - T01 (MARCACAO PESADA): presenca + TODOS os criterios da folha (4 quesitos,
-  29 criterios -> 5 baloes cada) com frequencias rotativas 1..5 + TODAS as 6
-  observacoes positivas. Esperado: presenca PRESENTE, todas as frequencias
-  exatas, obs p1..p6 lidas, zero incidentes.
-- T02 (ANOMALIAS): presenca + frequencias pontuais + 2 AMBIGUIDADES (2 baloes
-  no mesmo criterio -> frequencia omitida + incidente) + 2 CONTRADICOES
+  29 criterios -> 5 baloes cada) com CONTAGEM rotativa 1..5 (marca K baloes
+  -> espera K; cobre o 5/5 do caso real) + TODAS as 6 observacoes positivas.
+  Esperado: presenca PRESENTE, todas as frequencias exatas (contagem),
+  obs p1..p6 lidas, zero incidentes.
+- T02 (MULTI-MARCACAO + CONTRADICOES): presenca + contagens pontuais
+  (kata_base_incorreta=2, bunkai_distancia_inadequada=3) + 2 criterios com
+  2 baloes marcados (kihon_base_incorreta e kumite_falta_controle) ->
+  frequencia 2 legitima (sem ambiguidade) + 2 CONTRADICOES
   (obs_p1/obs_m1 e obs_p4/obs_m4 -> anuladas + incidentes) + 2 obs soltas
   (obs_p3, obs_m6) que permanecem.
-- T03 (AUSENTE): SEM presenca, mas com frequencia e obs marcadas -> AUSENTE,
+- T03 (AUSENTE): SEM presenca, mas com freq e obs marcadas -> AUSENTE,
   sem avaliacao (regra: presenca nao marcada ignora tudo).
 
 Os baloes sao preenchidos com DISCO QUASE CHEIO (0.95 do raio), simulando o
@@ -120,30 +128,36 @@ def _montar_planos(coords: dict) -> dict:
     """Deriva as expectativas dos 3 cenários a partir das coordenadas reais."""
     alunos = {a["id"]: a for a in coords["alunos"]}
 
-    # T01: presenca + TODOS os criterios (freq rotativa 1..5) + obs p1..p6
+    # T01: presenca + TODOS os criterios (contagem rotativa 1..5 baloes) +
+    #      obs p1..p6. Cobre o 5/5 (legitimo no dominio).
     a1 = alunos["T01"]
     marcar_freq_t01: dict[str, int] = {}
     for idx, chave in enumerate(sorted(a1["frequencias"])):
-        marcar_freq_t01[chave] = (idx % 5) + 1
+        marcar_freq_t01[chave] = (idx % 5) + 1   # K baloes (1..5) -> espera K
     obs_t01 = [f"obs_p{i}" for i in range(1, 7)]
 
-    # T02: pontuais + 2 ambiguidades + 2 contradicoes + 2 soltas
+    # T02: presenca + contagens pontuais (2 e 3) + MULTI-MARCACAO (2 baloes
+    #      em kihon_base_incorreta e kumite_falta_controle -> freq 2 legitima)
+    #      + 2 contradicoes (anuladas) + 2 obs soltas.
     a2 = alunos["T02"]
-    freq_t02 = ["kata_base_incorreta", "bunkai_distancia_inadequada"]
-    amb_t02 = ["kihon_base_incorreta", "kumite_falta_controle"]
+    freq_t02 = {
+        "kata_base_incorreta": 2,
+        "bunkai_distancia_inadequada": 3,
+        "kihon_base_incorreta": 2,
+        "kumite_falta_controle": 2,
+    }
     obs_contrad_02 = ["obs_p1", "obs_m1", "obs_p4", "obs_m4"]
     obs_soltas_02 = ["obs_p3", "obs_m6"]
 
-    # T03: sem presenca; marca 1 freq + 2 obs (tudo ignorado)
+    # T03: sem presenca; marca 2 baloes + 2 obs (tudo ignorado)
     a3 = alunos["T03"]
-    freq_t03 = ["kihon_base_incorreta"]
+    freq_t03 = {"kihon_base_incorreta": 2}
     obs_t03 = ["obs_p1", "obs_m2"]
 
     return {
         "T01": {
             "presenca": True,
             "marcar_frequencias": marcar_freq_t01,
-            "ambiguidades": [],
             "marcar_obs": obs_t01,
             "esperar_frequencias": marcar_freq_t01,
             "esperar_obs": obs_t01,
@@ -151,22 +165,18 @@ def _montar_planos(coords: dict) -> dict:
         },
         "T02": {
             "presenca": True,
-            "marcar_frequencias": {k: (i + 2) for i, k in enumerate(freq_t02)},
-            "ambiguidades": amb_t02,
+            "marcar_frequencias": freq_t02,
             "marcar_obs": obs_contrad_02 + obs_soltas_02,
-            "esperar_frequencias": {k: (i + 2) for i, k in enumerate(freq_t02)},
+            "esperar_frequencias": freq_t02,
             "esperar_obs": obs_soltas_02,          # contraditas anuladas
             "esperar_incidentes": [
-                "ambiguidade_frequencia",          # kihon_base_incorreta
-                "ambiguidade_frequencia",          # kumite_falta_controle
                 "contradicao:obs_p1/obs_m1",
                 "contradicao:obs_p4/obs_m4",
             ],
         },
         "T03": {
             "presenca": False,
-            "marcar_frequencias": {freq_t03[0]: 2},
-            "ambiguidades": [],
+            "marcar_frequencias": freq_t03,
             "marcar_obs": obs_t03,
             "esperar_frequencias": {},
             "esperar_obs": [],
@@ -176,11 +186,10 @@ def _montar_planos(coords: dict) -> dict:
 
 
 def _contar_baloes(planos: dict) -> int:
-    """Conta quantos círculos serão pintados (freq + ambiguidade + obs + presença)."""
+    """Conta quantos círculos serão pintados (freq + obs + presença)."""
     total = 0
     for plano in planos.values():
-        total += sum(plano["marcar_frequencias"].values())   # freq = balão
-        total += len(plano["ambiguidades"]) * 2              # 2 balões por ambig.
+        total += sum(plano["marcar_frequencias"].values())   # K balões por critério
         total += len(plano["marcar_obs"])
         total += 1 if plano["presenca"] else 0
     return total
@@ -195,15 +204,13 @@ def _marcar(img, coords, planos, escala, janela_px):
         a = next(x for x in coords["alunos"] if x["id"] == aluno_id)
         if plano["presenca"]:
             _pintar_balao(img, cinza, a["presenca"], escala, janela_px)
-        for chave, freq in plano["marcar_frequencias"].items():
+        for chave, qtd in plano["marcar_frequencias"].items():
             baloes = a["frequencias"].get(chave)
-            if baloes and 1 <= freq <= len(baloes):
-                _pintar_balao(img, cinza, baloes[freq - 1], escala, janela_px)
-        for chave in plano["ambiguidades"]:
-            baloes = a["frequencias"].get(chave)
-            if baloes and len(baloes) >= 3:
-                _pintar_balao(img, cinza, baloes[0], escala, janela_px)  # 1o
-                _pintar_balao(img, cinza, baloes[2], escala, janela_px)  # 3o
+            if not baloes:
+                continue
+            qtd = min(qtd, len(baloes))
+            for j in range(qtd):
+                _pintar_balao(img, cinza, baloes[j], escala, janela_px)
         for chave in plano["marcar_obs"]:
             b = a["observacoes"].get(chave)
             if b:
@@ -227,17 +234,13 @@ def _avaliar(aluno_id: str, plano: dict, resultado: dict) -> list[str]:
         falhas.append(
             f"presenca: esperado {plano['presenca']}, leu {resultado['presenca']}")
 
-    # Frequencias (comparacao exata por chave)
+    # Frequencias (comparacao exata por chave — contagem livre)
     lidas = _freq_achatadas(resultado)
     for chave, freq in plano["esperar_frequencias"].items():
         if lidas.get(chave) != freq:
             falhas.append(f"freq {chave}: esperado {freq}, leu {lidas.get(chave)}")
-    for chave in plano["ambiguidades"]:
-        if chave in lidas:
-            falhas.append(f"ambiguidade {chave}: nao devia ter frequencia, leu "
-                          f"{lidas[chave]}")
     # Extras lidos que nao deveriam existir
-    permitidas = set(plano["esperar_frequencias"]) | set(plano["ambiguidades"])
+    permitidas = set(plano["esperar_frequencias"])
     extras = set(lidas) - permitidas
     if extras:
         falhas.append(f"frequencias inesperadas: {sorted(extras)}")

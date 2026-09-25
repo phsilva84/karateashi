@@ -1,9 +1,13 @@
-"""tests/test_omr_robustez.py — Robustez do core.omr_reader (contrato v3.14).
+"""tests/test_omr_robustez.py — Robustez do core.omr_reader (contrato v3.17).
 
 Cobre as primitivas do reader ENXUTO e o pipeline completo em 2 etapas:
 - folha em BRANCO -> zero falsos positivos (presenca AUSENTE, freq vazias);
-- folha PREENCHIDA -> presenca PRESENTE, frequencia no critério certo,
-  observação marcada (item a item).
+- folha PREENCHIDA -> presenca PRESENTE, frequencia por CONTAGEM no
+  criterio certo, observacao marcada (item a item).
+
+Semantica (dominio): o avaliador marca TODOS os baloes observados (1..5);
+cada balao preenchido = 1 ocorrencia. Frequencia = QUANTIDADE de baloes
+marcados. 5/5 e legitimo.
 
 Determinístico: imagens sintéticas + monkeypatch do QR (sem depender de
 pyzbar/libzbar0 no runner — os testes de QR usam importorskip).
@@ -79,8 +83,11 @@ def _desenhar_circulo_preenchido(img, balao):
 def _marcar_t01(img, coords):
     a1 = coords["alunos"][0]
     _desenhar_circulo_preenchido(img, a1["presenca"])
+    # CONTAGEM: marca 2 baloes no criterio -> frequencia 2 (nao posicao)
     _desenhar_circulo_preenchido(
-        img, a1["frequencias"]["kihon_base_incorreta"][1])   # freq 2
+        img, a1["frequencias"]["kihon_base_incorreta"][1])
+    _desenhar_circulo_preenchido(
+        img, a1["frequencias"]["kihon_base_incorreta"][2])
     _desenhar_circulo_preenchido(img, a1["observacoes"]["obs_p1"])
 
 
@@ -116,9 +123,9 @@ def test_achar_anel_encontra_circulo():
 def test_achar_anel_tolerante_a_offset():
     img = _folha_a4()
     balao = _balao(50.0, 50.0)
-    cx = (balao["x_mm"] + 2.0) * ESCALA      # 2mm de desvio (dentro de ±3mm)
+    cx = (balao["x_mm"] + 2.0) * ESCALA
     cy = balao["y_mm"] * ESCALA
-    cv2.circle(img, (int(cx), int(cy)), int(1.0 * ESCALA), (0, 0, 0), -1)
+    cv2.circle(img, (int(cx), int(cy)), int(1.4 * ESCALA), (0, 0, 0), -1)  # 1.4mm (dentro 0.6r..1.4r)
     cinza = omr_reader._cinza(img)
     anel = omr_reader._achar_anel(
         cinza, balao["x_mm"] * ESCALA, balao["y_mm"] * ESCALA,
@@ -188,7 +195,7 @@ def test_pipeline_folha_em_branco(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Pipeline: folha preenchida -> item a item
+# Pipeline: folha preenchida -> item a item (contagem)
 # ---------------------------------------------------------------------------
 def test_pipeline_folha_preenchida(tmp_path, monkeypatch):
     coords = _coords_para_teste()
@@ -198,6 +205,7 @@ def test_pipeline_folha_preenchida(tmp_path, monkeypatch):
 
     t01 = next(r for r in res if r["aluno"]["id"] == "T01")
     assert t01["presenca"] == "PRESENTE"
+    # 2 baloes marcados no criterio -> frequencia 2 (contagem livre)
     assert t01["avaliacoes"]["kihon"]["frequencias"]["base_incorreta"] == 2
     assert "obs_p1" in t01["observacoes_marcadas"]
     assert t01["observacao_montada"] != ""

@@ -34,21 +34,32 @@ def test_classificar_checkbox_suspeito():
 
 # --- _frequencia (5 balões 1..5) ---------------------------------------------
 def test_frequencia_um_marcado():
-    freq, avisos = omr_reader._frequencia(
-        ["vazio", "marcado", "vazio", "vazio", "vazio"])
-    assert freq == 2 and avisos == []
+    # 1 balao marcado -> frequencia 1 (contagem, nao posicao)
+    densidades = [(0.05, 0.02), (0.90, 0.80), (0.05, 0.02),
+                  (0.05, 0.02), (0.05, 0.02)]
+    freq, avisos = omr_reader._frequencia(densidades)
+    assert freq == 1 and avisos == []
+
+
+def test_frequencia_tres_marcados():
+    # avaliador marcou 3 ocorrencias -> frequencia 3
+    densidades = [(0.90, 0.80), (0.05, 0.02), (0.88, 0.75),
+                  (0.05, 0.02), (0.92, 0.78)]
+    freq, avisos = omr_reader._frequencia(densidades)
+    assert freq == 3 and avisos == []
+
+
+def test_frequencia_cinco_marcados():
+    # 5/5 e legitimo -> frequencia 5
+    densidades = [(0.95, 0.80)] * 5
+    freq, avisos = omr_reader._frequencia(densidades)
+    assert freq == 5 and avisos == []
 
 
 def test_frequencia_nenhum_marcado():
-    freq, avisos = omr_reader._frequencia(["vazio"] * 5)
+    densidades = [(0.05, 0.02)] * 5
+    freq, avisos = omr_reader._frequencia(densidades)
     assert freq == 0 and avisos == []
-
-
-def test_frequencia_ambiguidade():
-    freq, avisos = omr_reader._frequencia(
-        ["marcado", "marcado", "vazio", "vazio", "vazio"])
-    assert freq == 0
-    assert any("ambiguidade" in a for a in avisos)
 
 
 # --- _anular_contradicoes ----------------------------------------------------
