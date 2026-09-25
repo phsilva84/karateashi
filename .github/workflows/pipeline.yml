@@ -18,20 +18,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar rclone (binário)
-        run: |
-          RCLONE_VERSION=1.68.2
-          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
-          unzip -o rclone.zip
-          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
-          sudo chmod +x /usr/local/bin/rclone
-          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
-          rclone version
-
-      - name: Configurar rclone
-        run: |
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: |
+            [gdrive]
+            type = drive
+            token = ${{ secrets.GDRIVE_TOKEN }}
+            root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
+          disable_base64: true
 
       - name: Pull gabaritos e cadastros do Drive
         run: |
@@ -65,20 +60,15 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements.txt
 
-      - name: Instalar rclone (binário)
-        run: |
-          RCLONE_VERSION=1.68.2
-          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
-          unzip -o rclone.zip
-          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
-          sudo chmod +x /usr/local/bin/rclone
-          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
-          rclone version
-
-      - name: Configurar rclone
-        run: |
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: |
+            [gdrive]
+            type = drive
+            token = ${{ secrets.GDRIVE_TOKEN }}
+            root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
+          disable_base64: true
 
       - name: Baixar scans do Drive
         run: |
@@ -161,20 +151,15 @@ jobs:
         with:
           name: relatorios
 
-      - name: Instalar rclone (binário)
-        run: |
-          RCLONE_VERSION=1.68.2
-          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
-          unzip -o rclone.zip
-          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
-          sudo chmod +x /usr/local/bin/rclone
-          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
-          rclone version
-
-      - name: Configurar rclone
-        run: |
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: |
+            [gdrive]
+            type = drive
+            token = ${{ secrets.GDRIVE_TOKEN }}
+            root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
+          disable_base64: true
 
       # Estado de idempotência vem do Drive (persiste entre runs)
       - name: Baixar estado de notificação do Drive
