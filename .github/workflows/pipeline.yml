@@ -18,6 +18,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Instalar rclone (binário)
+        run: |
+          RCLONE_VERSION=1.68.2
+          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          unzip -o rclone.zip
+          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
+          sudo chmod +x /usr/local/bin/rclone
+          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
+          rclone version
+
       - name: Configurar rclone
         run: |
           mkdir -p ~/.config/rclone
@@ -54,6 +64,16 @@ jobs:
 
       - name: Instalar dependências
         run: pip install -r requirements.txt
+
+      - name: Instalar rclone (binário)
+        run: |
+          RCLONE_VERSION=1.68.2
+          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          unzip -o rclone.zip
+          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
+          sudo chmod +x /usr/local/bin/rclone
+          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
+          rclone version
 
       - name: Configurar rclone
         run: |
@@ -140,6 +160,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: relatorios
+
+      - name: Instalar rclone (binário)
+        run: |
+          RCLONE_VERSION=1.68.2
+          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          unzip -o rclone.zip
+          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
+          sudo chmod +x /usr/local/bin/rclone
+          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
+          rclone version
 
       - name: Configurar rclone
         run: |
