@@ -18,20 +18,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Rclone
-        uses: AnimMouse/setup-rclone@v1
-        with:
-          rclone_config: |
-            [gdrive]
-            type = drive
-            token = ${{ secrets.GDRIVE_TOKEN }}
-            root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
-          disable_base64: true
+      - name: Instalar rclone (binário)
+        run: |
+          RCLONE_VERSION=1.68.2
+          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          unzip -o rclone.zip
+          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
+          sudo chmod +x /usr/local/bin/rclone
+          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
+          rclone version
+
+      - name: Configurar rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
 
       - name: Pull gabaritos e cadastros do Drive
         run: |
-          rclone copy "gdrive:KarateAshi/gabaritos" data/gabaritos/ --transfers 8
-          rclone copy "gdrive:KarateAshi/cadastro" data/cadastro/ --transfers 8
+          rclone copy "gdrive:gabaritos" data/gabaritos/ --transfers 8
+          rclone copy "gdrive:cadastro" data/cadastro/ --transfers 8
 
       - name: Upload artefato de entrada
         uses: actions/upload-artifact@v4
@@ -60,20 +66,26 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements.txt
 
-      - name: Setup Rclone
-        uses: AnimMouse/setup-rclone@v1
-        with:
-          rclone_config: |
-            [gdrive]
-            type = drive
-            token = ${{ secrets.GDRIVE_TOKEN }}
-            root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
-          disable_base64: true
+      - name: Instalar rclone (binário)
+        run: |
+          RCLONE_VERSION=1.68.2
+          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          unzip -o rclone.zip
+          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
+          sudo chmod +x /usr/local/bin/rclone
+          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
+          rclone version
+
+      - name: Configurar rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
 
       - name: Baixar scans do Drive
         run: |
           mkdir -p data/scans
-          rclone copy "gdrive:KarateAshi/scans" data/scans/ --transfers 8 || true
+          rclone copy "gdrive:scans" data/scans/ --transfers 8 || true
 
       - name: Ingerir folhas (OMR)
         run: |
@@ -151,20 +163,26 @@ jobs:
         with:
           name: relatorios
 
-      - name: Setup Rclone
-        uses: AnimMouse/setup-rclone@v1
-        with:
-          rclone_config: |
-            [gdrive]
-            type = drive
-            token = ${{ secrets.GDRIVE_TOKEN }}
-            root_folder_id = 1aFwAcB7bC7sy2VZs27cpAllE7-ZvcS23
-          disable_base64: true
+      - name: Instalar rclone (binário)
+        run: |
+          RCLONE_VERSION=1.68.2
+          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          unzip -o rclone.zip
+          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
+          sudo chmod +x /usr/local/bin/rclone
+          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
+          rclone version
+
+      - name: Configurar rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
 
       # Estado de idempotência vem do Drive (persiste entre runs)
       - name: Baixar estado de notificação do Drive
         run: |
-          rclone copy "gdrive:KarateAshi/estado/.ka-notify-state.json" . --transfers 4 || true
+          rclone copy "gdrive:estado/.ka-notify-state.json" . --transfers 4 || true
 
       - name: Enviar Telegram e sincronizar Drive
         env:
@@ -175,4 +193,4 @@ jobs:
       # Devolve o estado atualizado para o próximo run
       - name: Persistir estado de notificação no Drive
         run: |
-          rclone copy .ka-notify-state.json "gdrive:KarateAshi/estado" --transfers 4 || true
+          rclone copy .ka-notify-state.json "gdrive:estado" --transfers 4 || true
