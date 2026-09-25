@@ -79,7 +79,7 @@ jobs:
       - name: Configurar rclone
         run: |
           mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
       - name: Baixar scans do Drive
@@ -132,6 +132,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: folhas-omr
+        continue-on-error: true   # tolera run sem scans (artefato inexistente)
 
       - name: Executar pipeline de processamento
         run: python core/pipeline.py --config config --data data --output output
@@ -176,7 +177,7 @@ jobs:
       - name: Configurar rclone
         run: |
           mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
       # Estado de idempotência vem do Drive (persiste entre runs)
