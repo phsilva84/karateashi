@@ -145,7 +145,7 @@ jobs:
         with:
           name: relatorios
           path: output/
-          if-no-files-found: error
+          if-no-files-found: warn   # run sem dados não gera output/ — avisa, não falha
 
   # ── Job 3: Telegram (grupo do Dojo / canal dos Mestres) + Drive ─────
   distribuir:
@@ -166,6 +166,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: relatorios
+        continue-on-error: true   # tolera run sem relatórios (artefato inexistente)
 
       - name: Instalar rclone (binário)
         run: |
