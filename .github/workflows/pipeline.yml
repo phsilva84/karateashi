@@ -89,6 +89,7 @@ jobs:
 
       - name: Ingerir folhas (OMR)
         run: |
+          export PYTHONPATH=${PYTHONPATH:-}:.
           set +e
           python tools/ingest_folhas.py --entrada data/scans --config config \
             --saida output/omr --arquivo data/scans/processados --origem auto
@@ -135,7 +136,9 @@ jobs:
         continue-on-error: true   # tolera run sem scans (artefato inexistente)
 
       - name: Executar pipeline de processamento
-        run: python core/pipeline.py --config config --data data --output output
+        run: |
+          export PYTHONPATH=${PYTHONPATH:-}:.
+          python core/pipeline.py --config config --data data --output output
 
       - name: Upload relatórios gerados
         uses: actions/upload-artifact@v4
@@ -189,7 +192,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python core/notifications.py --output output --config config
+        run: |
+          export PYTHONPATH=${PYTHONPATH:-}:.
+          python core/notifications.py --output output --config config
 
       # Devolve o estado atualizado para o próximo run
       - name: Persistir estado de notificação no Drive
