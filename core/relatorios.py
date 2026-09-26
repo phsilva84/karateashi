@@ -9,6 +9,12 @@ Cada gerador devolve (texto, json): o texto vai para Telegram/leitura e o
 JSON estruturado fica disponível para o pipeline. Os diretórios de saída são
 distintos (sensei/ vs master/) — definidos pelo chamador (core/pipeline.py).
 
+Taxonomia de status (sem "recuperação"):
+  APROVADO               -> nota >= aprovado_min
+  APROVADO_PONTO_ATENCAO -> nota >= atencao_min (aprovado, com melhorias)
+  REPROVADO              -> caso contrário
+  AUSENTE / REVISAO_PENDENTE -> casos especiais
+
 Funções LEGADAS (relatorio_individual, consolidar_dojo,
 formatar_consolidado_dojo, relatorio_tendencias, relatorio_master) são
 mantidas por compatibilidade com tests/test_relatorios.py — o pipeline v2.0
@@ -62,7 +68,7 @@ NOME_CRITERIO = {
     "falta_combatividade": "Falta de combatividade",
 }
 
-STATUS_ORDEM = ["APROVADO", "RECUPERACAO", "REPROVADO",
+STATUS_ORDEM = ["APROVADO", "APROVADO_PONTO_ATENCAO", "REPROVADO",
                 "AUSENTE", "REVISAO_PENDENTE"]
 
 NIVEL_ORDEM = {"CRITICO": 0, "ATENCAO": 1, "OBSERVACAO": 2, "FORCA": 3}
@@ -191,7 +197,8 @@ def gerar_relatorio_sensei(resultados: list[dict], regras: dict,
         "total_presentes": len(presentes),
         "status": {s: len(grupos[s]) for s in STATUS_ORDEM},
         "aprovados": [_resumo_aluno(r) for r in grupos["APROVADO"]],
-        "recuperacao": [_resumo_aluno(r) for r in grupos["RECUPERACAO"]],
+        "aprovado_ponto_atencao": [_resumo_aluno(r)
+                                   for r in grupos["APROVADO_PONTO_ATENCAO"]],
         "reprovados": [_resumo_aluno(r) for r in grupos["REPROVADO"]],
         "ausentes": [_resumo_aluno(r) for r in grupos["AUSENTE"]],
         "revisao_pendente": [r.get("aluno_id", "?")
@@ -212,7 +219,7 @@ def gerar_relatorio_sensei(resultados: list[dict], regras: dict,
     linhas.append("")
     linhas.append(
         f"STATUS: Aprovado {len(grupos['APROVADO'])} | "
-        f"Recuperacao {len(grupos['RECUPERACAO'])} | "
+        f"Aprovado c/ atencao {len(grupos['APROVADO_PONTO_ATENCAO'])} | "
         f"Reprovado {len(grupos['REPROVADO'])} | "
         f"Revisao pendente {len(grupos['REVISAO_PENDENTE'])} | "
         f"Ausente {len(grupos['AUSENTE'])}")
@@ -227,7 +234,7 @@ def gerar_relatorio_sensei(resultados: list[dict], regras: dict,
         linhas.append("")
 
     _bloco("APROVADOS:", dados["aprovados"])
-    _bloco("EM RECUPERACAO:", dados["recuperacao"])
+    _bloco("APROVADOS COM PONTO DE ATENCAO:", dados["aprovado_ponto_atencao"])
     _bloco("REPROVADOS:", dados["reprovados"])
     _bloco("AUSENTES:", dados["ausentes"])
 
@@ -252,7 +259,8 @@ def gerar_relatorio_master(resultados_dojos: list[dict], regras: dict,
     """Relatório Master: incidência %, ranking e recomendações por critério.
 
     Percentuais calculados sobre o total de PRESENTES (ausentes não são
-    avaliados). Devolve (texto, json).
+    avaliados). APROVADO_PONTO_ATENCAO conta como aprovado na taxa, mas é
+    exibido separadamente. Devolve (texto, json).
     """
     if not resultados_dojos:
         return ("RELATORIO MASTER MULTI-DOJO\n\nSem dados de dojos.",
@@ -269,14 +277,20 @@ def gerar_relatorio_master(resultados_dojos: list[dict], regras: dict,
         n_presentes_total += len(presentes)
         media = (sum(r.get("nota_final", 0.0) for r in presentes) / len(presentes)
                  if presentes else 0.0)
-        aprov = sum(1 for r in presentes if r.get("status") == "APROVADO")
-        taxa = aprov / len(presentes) * 100 if presentes else 0.0
+        aprov_total = sum(
+            1 for r in presentes
+            if r.get("status") in ("APROVADO", "APROVADO_PONTO_ATENCAO"))
+        atencao = sum(1 for r in presentes
+                      if r.get("status") == "APROVADO_PONTO_ATENCAO")
+        taxa = aprov_total / len(presentes) * 100 if presentes else 0.0
+        taxa_atencao = atencao / len(presentes) * 100 if presentes else 0.0
         dojos_json.append({
             "dojo_id": d.get("dojo_id", "D01"),
             "total_alunos": len(alunos),
             "presentes": len(presentes),
             "media": round(media, 1),
             "taxa_aprovacao": round(taxa, 1),
+            "taxa_atencao": round(taxa_atencao, 1),
         })
         for r in presentes:
             for quesito, q in (r.get("quesitos") or {}).items():
@@ -331,9 +345,11 @@ def gerar_relatorio_master(resultados_dojos: list[dict], regras: dict,
               f"Alunos presentes: {n_presentes_total}",
               ""]
     for dj in dojos_json:
-        linhas.append(f"Dojo {dj['dojo_id']}: média {dj['media']} | "
-                      f"aprovação {dj['taxa_aprovacao']:.0f}% "
-                      f"({dj['presentes']} presentes / {dj['total_alunos']} total)")
+        linhas.append(
+            f"Dojo {dj['dojo_id']}: média {dj['media']} | "
+            f"aprovação {dj['taxa_aprovacao']:.0f}% "
+            f"(sendo {dj['taxa_atencao']:.0f}% com ponto de atenção) "
+            f"({dj['presentes']} presentes / {dj['total_alunos']} total)")
     linhas.append("")
     linhas.append("RANKING DE CRITERIOS MAIS MARCADOS:")
     for i, e in enumerate(ranking_json, 1):
@@ -438,7 +454,7 @@ def formatar_consolidado_dojo(consolidado: dict) -> str:
     taxa = consolidado["taxa"]
     linhas.append(
         f"Taxa de status: Aprovado {taxa['APROVADO']}% | "
-        f"Recuperação {taxa['RECUPERACAO']}% | "
+        f"Aprovado c/ atencao {taxa['APROVADO_PONTO_ATENCAO']}% | "
         f"Reprovado {taxa['REPROVADO']}% | "
         f"Revisão pendente {taxa['REVISAO_PENDENTE']}% | "
         f"Ausente {taxa['AUSENTE']}%")

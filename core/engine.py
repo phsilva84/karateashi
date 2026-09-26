@@ -140,11 +140,17 @@ def nota_quesito(avaliacoes: list[dict], quesito: str, criterios_q: list[dict],
     }
 
 def classificar_status(nota_final: float, regras: dict) -> str:
-    """Classifica a nota final segundo as faixas da configuração."""
+    """Classifica a nota final segundo as faixas da configuração.
+
+    Taxonomia v2.0 (sem "recuperação" — não há exame complementar no karatê):
+      APROVADO               -> nota >= aprovado_min
+      APROVADO_PONTO_ATENCAO -> nota >= atencao_min (aprovado, com melhorias)
+      REPROVADO              -> caso contrário
+    """
     if nota_final >= regras["status"]["aprovado_min"]:
         return "APROVADO"
-    if nota_final >= regras["status"]["recuperacao_min"]:
-        return "RECUPERACAO"
+    if nota_final >= regras["status"]["atencao_min"]:
+        return "APROVADO_PONTO_ATENCAO"
     return "REPROVADO"
 
 def _validar_entrada(avaliacoes: list[dict], faixa: str | None) -> None:

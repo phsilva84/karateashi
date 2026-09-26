@@ -13,7 +13,7 @@
   },
   "status": {
     "aprovado_min": 70.0,
-    "recuperacao_min": 60.0
+    "atencao_min": 50.0
   },
   "elogios": {
     "criterio_transversal_min_quesitos": 2,
