@@ -280,6 +280,13 @@ def main() -> int:
     ap.add_argument("--output", type=Path, default=Path("output"))
     ap.add_argument("--omr", type=Path, default=None,
                     help="pasta dos JSONs do OMR (default: <output>/omr)")
+    ap.add_argument("--regras", type=Path, default=None,
+                    help="JSON de regras (default: <config>/regras_gerais.json)")
+    ap.add_argument("--recomendacoes", type=Path, default=None,
+                    help="JSON de recomendações "
+                         "(default: <config>/recomendacoes.json)")
+    ap.add_argument("--no-relatorios", action="store_true",
+                    help="pula a geração dos relatórios")
     args = ap.parse_args()
 
     pasta_omr = args.omr or (args.output / "omr")
@@ -297,6 +304,11 @@ def main() -> int:
                            encoding="utf-8")
         chaves = ", ".join(sorted(r.keys()))
         print(f"[OK] {aluno_id}: {chaves}")
+
+    if not args.no_relatorios:
+        gerar_relatorios(resultados, args.config, args.output,
+                         args.regras, args.recomendacoes)
+
     print(f"Pipeline concluído: {len(resultados)} aluno(s) em {args.output}")
     return 0
 
