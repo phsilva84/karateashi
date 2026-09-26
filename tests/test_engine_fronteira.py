@@ -3,7 +3,9 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from core.engine import classificar_status
 
-REGRAS = {"status": {"aprovado_min": 70.0, "recuperacao_min": 60.0}}
+# Taxonomia v2.0 sem "recuperação": APROVADO >= 70,0 |
+# APROVADO_PONTO_ATENCAO >= 50,0 | REPROVADO < 50,0
+REGRAS = {"status": {"aprovado_min": 70.0, "atencao_min": 50.0}}
 
 def _arredondar_nota(soma: float) -> float:
     """Mesma rotina do engine: 2 casas -> 1 casa com aritmética decimal."""
@@ -24,7 +26,7 @@ def test_fronteira_69_95_e_69_96_aprovam():
     assert classificar_status(_arredondar_nota(69.96), REGRAS) == "APROVADO"
     assert classificar_status(_arredondar_nota(69.95), REGRAS) == "APROVADO"
 
-def test_fronteira_69_94_recuperacao():
-    """Abaixo da meia-fronteira: 69.9 -> RECUPERACAO."""
+def test_fronteira_69_94_ponto_atencao():
+    """Abaixo da meia-fronteira: 69.9 -> APROVADO_PONTO_ATENCAO."""
     assert _arredondar_nota(69.94) == 69.9
-    assert classificar_status(69.9, REGRAS) == "RECUPERACAO"
+    assert classificar_status(69.9, REGRAS) == "APROVADO_PONTO_ATENCAO"

@@ -130,8 +130,8 @@ def test_processa_aluno_reprovado(base_cfg: Path):
     assert r["nota_final"] < 70.0
     assert r["status"] == "REPROVADO"
 
-def test_processa_aluno_recuperacao(base_cfg: Path):
-    """Nota 68,0 → status RECUPERACAO (60 ≤ nota < 70).
+def test_processa_aluno_ponto_atencao(base_cfg: Path):
+    """Nota 68,0 → status APROVADO_PONTO_ATENCAO (50 ≤ nota < 70).
 
     Fórmula real do engine: desconto = fc × peso × multiplicador
     (regras_gerais.json: fc=2 → mult 1,5 | fc=1 → mult 1,0).
@@ -156,7 +156,7 @@ def test_processa_aluno_recuperacao(base_cfg: Path):
         for _ in range(3)
     ]
     r = processa_aluno(avs, base_cfg, "branca")
-    assert r["status"] == "RECUPERACAO"
+    assert r["status"] == "APROVADO_PONTO_ATENCAO"
     assert r["nota_final"] == 68.0
 
 def test_kumite_alerta_etico_um_de_tres(base_cfg: Path):

@@ -229,6 +229,6 @@ def test_consenso_controle():
 def test_classificar_status(regras):
     assert classificar_status(100.0, regras) == "APROVADO"
     assert classificar_status(70.0, regras) == "APROVADO"
-    assert classificar_status(69.9, regras) == "RECUPERACAO"
-    assert classificar_status(60.0, regras) == "RECUPERACAO"
-    assert classificar_status(59.9, regras) == "REPROVADO"
+    assert classificar_status(69.9, regras) == "APROVADO_PONTO_ATENCAO"
+    assert classificar_status(50.0, regras) == "APROVADO_PONTO_ATENCAO"
+    assert classificar_status(49.9, regras) == "REPROVADO"
