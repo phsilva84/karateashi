@@ -155,14 +155,17 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
     folhas = carregar_jsons_omr(pasta_omr)
     resultados = []
     for aluno_id, avaliadores in agregar_por_aluno(folhas).items():
-        faixa = (avaliadores[0].get("metadados", {}).get("faixa")
-                 or "branca").strip().lower()
+        metadados = avaliadores[0].get("metadados") or {}
+        faixa = (metadados.get("faixa") or "branca").strip().lower()
+        dojo_id = metadados.get("dojo") or metadados.get("dojo_id") or "D01"
+        exame_id = metadados.get("exame") or ""
         # REGRA: presença não marcada -> AUSENTE (não avaliar frequências).
-        # Se QUALQUER avaliador marcou ausente, o aluno é AUSENTE.
         if any(av.get("presenca") != "PRESENTE" for av in avaliadores):
             resultados.append({
                 "aluno_id": aluno_id,
                 "faixa": faixa,
+                "dojo_id": dojo_id,
+                "exame_id": exame_id,
                 "status": "AUSENTE",
                 "status_bruto": "AUSENTE",
                 "nota_final": 0.0,
@@ -174,12 +177,12 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
                     avaliadores),
             })
             continue
-        # carregar_faixa devolve o dict interno de QUESITOS (sem a chave
-        # "quesitos"); as funções do pipeline esperam o envelope do JSON.
         matriz = {"quesitos": carregar_faixa(cfg, faixa)}
         lote = montar_lote_engine(aluno_id, faixa, avaliadores, matriz)
         resultado = processa_aluno(lote, cfg, faixa)
         resultado["aluno_id"] = aluno_id
+        resultado["dojo_id"] = dojo_id
+        resultado["exame_id"] = exame_id
         resultado["origens"] = [av.get("origem") for av in avaliadores]
         resultado["observacoes_automaticas"] = gerar_obs_automaticas_do_aluno(
             avaliadores, cfg)
@@ -187,7 +190,6 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
             avaliadores)
         resultados.append(resultado)
     return resultados
-
 
 def gerar_obs_automaticas_do_aluno(avaliadores: list[dict], cfg: Path) -> list[dict]:
     """Gera observações automáticas a partir das frequências do OMR.
@@ -217,6 +219,57 @@ def gerar_obs_automaticas_do_aluno(avaliadores: list[dict], cfg: Path) -> list[d
     return observacoes_automaticas.merge_no_json(resultado, cfg)[
         "observacoes_automaticas"
     ]
+    
+def gerar_relatorios(resultados: list[dict], cfg: Path, output: Path,
+                     regras_path: Path | None = None,
+                     recomendacoes_path: Path | None = None) -> None:
+    """Gera os relatórios em 2 camadas via core.relatorios.
+
+    Saídas em diretórios DISTINTOS por tipo:
+      <output>/relatorios/sensei/relatorio_sensei_<dojo>.txt | .json
+      <output>/relatorios/master/relatorio_master.txt | .json
+
+    AUSENTE entra no Sensei (lista própria) e fica fora das agregações
+    percentuais do Master (denominador = alunos presentes).
+    """
+    from core import relatorios
+
+    regras_path = regras_path or (cfg / "regras_gerais.json")
+    recomendacoes_path = recomendacoes_path or (cfg / "recomendacoes.json")
+    try:
+        regras = json.loads(regras_path.read_text(encoding="utf-8"))
+        recomendacoes = json.loads(recomendacoes_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as e:
+        print(f"[AVISO] Relatórios pulados — arquivo ausente: {e.filename}")
+        return
+
+    por_dojo: dict[str, list[dict]] = {}
+    for r in resultados:
+        por_dojo.setdefault(r.get("dojo_id", "D01"), []).append(r)
+
+    dir_sensei = output / "relatorios" / "sensei"
+    dir_master = output / "relatorios" / "master"
+    dir_sensei.mkdir(parents=True, exist_ok=True)
+    dir_master.mkdir(parents=True, exist_ok=True)
+
+    for dojo_id, alunos in por_dojo.items():
+        exame = alunos[0].get("exame_id", "") if alunos else ""
+        texto, dados = relatorios.gerar_relatorio_sensei(
+            alunos, regras, recomendacoes, dojo_id=dojo_id, exame_id=exame)
+        (dir_sensei / f"relatorio_sensei_{dojo_id}.txt").write_text(
+            texto, encoding="utf-8")
+        (dir_sensei / f"relatorio_sensei_{dojo_id}.json").write_text(
+            json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    dojos = [{"dojo_id": did, "alunos": al, "media_anterior": None}
+             for did, al in por_dojo.items()]
+    texto, dados = relatorios.gerar_relatorio_master(
+        dojos, regras, recomendacoes)
+    (dir_master / "relatorio_master.txt").write_text(
+        texto, encoding="utf-8")
+    (dir_master / "relatorio_master.json").write_text(
+        json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[OK] Relatórios: Sensei em {dir_sensei} | Master em {dir_master}")
 
 
 def main() -> int:
