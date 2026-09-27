@@ -46,7 +46,7 @@ OBS_POSITIVAS = {
     "obs_p3": "Boa aplicacao do Bunkai",
     "obs_p4": "Boa Conducao no Kumite",
     "obs_p5": "Bom Dominio Tecnico",
-    "obs_p6": "Otimo Desempenho",
+    "obs_p6": "Bom Desempenho",
 }
 
 OBS_MELHORAR = {

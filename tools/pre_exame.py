@@ -49,6 +49,7 @@ from reportlab.pdfgen import canvas as pdfcanvas
 
 from core import observacoes
 from core.config import QUESITOS, carregar_json
+from core.observacoes import OBS_MELHORAR, OBS_POSITIVAS
 
 MM = 72.0 / 25.4
 A4_W_MM, A4_H_MM = 297.0, 210.0
@@ -58,18 +59,25 @@ BALOES_POR_CRITERIO = 5
 # ---------------------------------------------------------------------------
 # Geometria (mm, origem topo-esquerda) — fonte unica folha/JSON
 # ---------------------------------------------------------------------------
+# Geometria em mm (fonte única)
 MARGEM = 10.0
-HEADER_H = 14.0          # cabecalho compacto (sem titulo) — grid sobe
-FOOTER_H = 38.0
-LINHA_H = (A4_H_MM - HEADER_H - FOOTER_H) / ALUNOS_POR_FOLHA   # 52.67
-FOOTER_Y0 = HEADER_H + 3 * LINHA_H                              # 172
+HEADER_H = 34.0                       # cabeçalho (28 + 6mm de margem de
+                                      # segurança p/ impressoras que cortam
+                                      # o topo; o conteúdo do cabeçalho
+                                      # agora começa em y≈14)
+FOOTER_H = 40.0                       # rodapé de observações (ampliado)
+LINHA_Y0 = HEADER_H
+LINHA_H = (A4_H_MM - HEADER_H - FOOTER_H) / ALUNOS_POR_FOLHA  # (210-34-40)/3 = 45.33mm
+FOOTER_Y0 = LINHA_Y0 + 3 * LINHA_H    # início do rodapé (mantém 170mm)
+# QR do exame (canto superior direito) — REDUZIDO para 14mm
+QR_CAB_X = A4_W_MM - MARGEM - 14.0    # 273mm
+QR_CAB_Y = 14.0                       # antes 8.0 (recuado do topo)
+QR_CAB_TAM = 14.0
 
-QR_CAB_X = A4_W_MM - MARGEM - 12.0      # 275
-QR_CAB_Y = 2.0
-QR_CAB_TAM = 12.0
-QR_ALUNO_X = (195.0, 214.0, 233.0)
-QR_ALUNO_Y = 2.0
-QR_ALUNO_TAM = 10.0
+# QR dos ALUNOS no CABEÇALHO — posição define a linha (1º=linha1, 2º=linha2, 3º=linha3)
+QR_ALUNO_CAB_X = [195.0, 214.0, 233.0]
+QR_ALUNO_CAB_Y = 14.0                 # antes 8.0 (recuado do topo)
+QR_ALUNO_CAB_TAM = 11.0
 
 # Grade de quesitos
 QUESITO_X0 = MARGEM
@@ -198,11 +206,13 @@ def _nome_dojo(raiz, dojo_id):
 def _desenhar_cabecalho(pdf, av, dojo_id, dojo_nome, exame):
     rotulo = (dojo_nome if dojo_nome.strip().lower().startswith("dojo")
               else f"Dojo {dojo_nome}")
+    # Margem de segurança no topo: impressoras comuns cortam ~5-6mm.
+    # Texto recuado para y>=8mm; QRs (exame) começam em y=14mm.
     _texto(pdf, f"{rotulo} ({dojo_id}) | Avaliador: {av['nome']} ({av['id']}) "
-                f"| Exame: {exame}", MARGEM, 3.5, F_SUBTITULO)
+                f"| Exame: {exame}", MARGEM, 8.0, F_SUBTITULO)
     _texto(pdf, "Instrucao: preencha os circulos com caneta. Marque o circulo "
                 "de PRESENCA do aluno. Observacoes: marque as opcoes que se "
-                "aplicam.", MARGEM, 8.0, F_INSTRUCAO)
+                "aplicam.", MARGEM, 12.5, F_INSTRUCAO)
     _qr(pdf, f"KA|AVALIADOR={av['id']}|DOJO={dojo_id}|EXAME={exame}",
         QR_CAB_X, QR_CAB_Y, QR_CAB_TAM)
 
@@ -371,10 +381,10 @@ def _gerar_folhas(exame, alunos, avaliadores, dojo_id, matriz_faixa, saida):
         for pagina_i, bloco in enumerate(paginas, start=1):
             _desenhar_cabecalho(pdf, av, dojo_id, dojo_nome, exame)
             for i, aluno in enumerate(bloco):
-                if i < len(QR_ALUNO_X):
+                if i < len(QR_ALUNO_CAB_X):
                     _qr(pdf, f"KA|ALUNO={aluno['id']}"
                              f"|FAIXA={aluno['faixa_atual'].strip().lower()}",
-                        QR_ALUNO_X[i], QR_ALUNO_Y, QR_ALUNO_TAM)
+                        QR_ALUNO_CAB_X[i], QR_ALUNO_CAB_Y, QR_ALUNO_CAB_TAM)
                 _desenhar_linha(pdf, aluno, i, matriz_faixa, coords, pagina_i)
             _desenhar_rodape(pdf, bloco, coords, pagina_i)
             pdf.showPage()
@@ -432,9 +442,18 @@ def main():
     if not alunos:
         print("nenhum aluno selecionado (filtro vazio?)")
         return 2
-    avaliadores = _carregar_avaliadores(RAIZ, args.avaliador)
+       # Regra: o EXAME define seus avaliadores (pre-selecionados no manifest).
+    # Gera folhas SÓ para eles — nunca para todos do config/avaliadores.json.
+    exames = carregar_json(RAIZ / "data" / "exames.json").get("exames", [])
+    exame = next((e for e in exames if e["id"] == args.exame), None)
+    if exame is None:
+        print(f"[ERRO] Exame '{args.exame}' não encontrado em data/exames.json.")
+        return 2
+    ids_exame = exame.get("avaliadores", [])
+    avaliadores = _carregar_avaliadores(RAIZ, ids_exame)
     if not avaliadores:
-        print("nenhum avaliador selecionado")
+        print(f"[ERRO] Nenhum avaliador do exame '{args.exame}' encontrado "
+              f"em config/avaliadores.json.")
         return 2
     matriz = carregar_json(RAIZ / "config" / "faixas" / "branca.json")
 
