@@ -1,9 +1,8 @@
 {
   "pares": [
-    {"topico": "execução técnica", "otimo": "obs_p1", "melhorar": "obs_m6"},
-    {"topico": "bases / postura",  "otimo": "obs_p2", "melhorar": "obs_m1"},
-    {"topico": "foco / olhar",     "otimo": "obs_p4", "melhorar": "obs_m4"},
-    {"topico": "kata",             "otimo": "obs_p7", "melhorar": "obs_m7"},
-    {"topico": "kihon",            "otimo": "obs_p8", "melhorar": "obs_m8"}
+    {"topico": "kihon",  "otimo": "obs_p1", "melhorar": "obs_m1"},
+    {"topico": "kata",   "otimo": "obs_p2", "melhorar": "obs_m2"},
+    {"topico": "bunkai", "otimo": "obs_p3", "melhorar": "obs_m3"},
+    {"topico": "kumite", "otimo": "obs_p4", "melhorar": "obs_m4"}
   ]
 }

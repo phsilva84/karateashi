@@ -4,10 +4,12 @@ Duas camadas de geração (novas, usadas pelo pipeline):
   - gerar_relatorio_sensei : operacional, por dojo/exame. Inclui, por aluno,
     a nota de cada quesito (Kihon/Kata/Bunkai/Kumite) e os pontos de atenção
     (só o nome do critério marcado, para manter enxuto), além do resumo de
-    status e observações gerais.
+    status, das observações (Tipo 1 separado em Pontos fortes / A melhorar,
+    Tipo 2 automáticas) e das contradições.
   - gerar_relatorio_master : estratégico, multi-dojo. Média percentual de
     marcações por quesito (ranking), resumo do dojo (média/aprovação) e um
-    bloco por aluno (mais detalhado, com quesitos e recomendações completas).
+    bloco por aluno (mais detalhado, com quesitos, recomendações completas,
+    observações e contradições).
 
 Cada gerador devolve (texto, json): o texto vai para Telegram/leitura e o
 JSON estruturado fica disponível para o pipeline. Os diretórios de saída são
@@ -19,6 +21,17 @@ Taxonomia de status (sem "recuperação"):
   REPROVADO              -> caso contrário
   AUSENTE / REVISAO_PENDENTE -> casos especiais
 
+Observações:
+  - Tipo 1 (manuais dos avaliadores): vocabulário oficial de
+    core/observacoes (OBS_POSITIVAS / OBS_MELHORAR) — separadas em
+    'Pontos fortes' e 'A melhorar'.
+  - Tipo 2 (automáticas): regras atuais mantidas (transversal/concentrada/
+    ranking/percentual) — exibidas em 'Automaticas'.
+  - Contradições: quando o mesmo avaliador marca 'Ótimo!' e 'A Melhorar'
+    do mesmo tópico (pares de config/observacoes_contradicoes.json), a
+    regra anula ambas e indica a contradição. Detecção feita pelos textos
+    já presentes no resultado (observacoes.gerais / por_quesito).
+
 Funções LEGADAS (relatorio_individual, consolidar_dojo,
 formatar_consolidado_dojo, relatorio_tendencias, relatorio_master) são
 mantidas por compatibilidade com tests/test_relatorios.py — o pipeline v2.0
@@ -26,7 +39,11 @@ não as emite mais.
 """
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from core.config import QUESITOS as QUESITOS_ORDEM, carregar_json  # fonte única (Fase 4)
+from core.observacoes import OBS_MELHORAR, OBS_POSITIVAS
 
 NOME_QUESITO = {
     "kihon": "Kihon",
@@ -72,6 +89,102 @@ STATUS_ORDEM = ["APROVADO", "APROVADO_PONTO_ATENCAO", "REPROVADO",
                 "AUSENTE", "REVISAO_PENDENTE"]
 
 NIVEL_ORDEM = {"CRITICO": 0, "ATENCAO": 1, "OBSERVACAO": 2, "FORCA": 3}
+
+# --- Observações (Tipo 1) — classificação pelo vocabulário oficial ---
+_OBS_POSITIVAS_TXT = tuple(t.lower() for t in OBS_POSITIVAS.values())
+_OBS_MELHORAR_TXT = tuple(t.lower() for t in OBS_MELHORAR.values())
+
+_PREFIXOS_FORTES = ("boa", "bom", "otim", "ótimo", "excelente", "bem", "grande")
+_PREFIXOS_MELHORAR = ("dificuldade", "erros", "falta", "melhorar", "atenção",
+                      "nervosismo", "perda", "cabeça", "mais foco", "mais carga")
+
+
+def _carregar_pares_contradicao() -> list[dict]:
+    """Carrega os pares de contradição de config/observacoes_contradicoes.json."""
+    caminho = Path(__file__).resolve().parents[1] / "config" / \
+        "observacoes_contradicoes.json"
+    try:
+        return carregar_json(caminho).get("pares", [])
+    except Exception:  # noqa: BLE001 — config ausente/inválida não quebra o fluxo
+        return []
+
+
+def _classificar_observacao(parte: str) -> str:
+    """Classifica um segmento de observação manual.
+
+    Usa o vocabulário oficial de core/observacoes como fonte única e
+    heurística de prefixo para textos livres. Retorna
+    'forte' | 'melhorar' | 'outra'.
+    """
+    t = parte.lower().strip()
+    if any(p in t for p in _OBS_POSITIVAS_TXT):
+        return "forte"
+    if any(m in t for m in _OBS_MELHORAR_TXT):
+        return "melhorar"
+    if t.startswith(_PREFIXOS_FORTES):
+        return "forte"
+    if t.startswith(_PREFIXOS_MELHORAR):
+        return "melhorar"
+    return "outra"
+
+
+def _observacoes_aluno(r: dict) -> dict:
+    """Observações do aluno divididas em pontos fortes / a melhorar / outras.
+
+    Tipo 1 (manuais): classificadas pelo vocabulário oficial
+    (OBS_POSITIVAS / OBS_MELHORAR) — separadas em 'Pontos fortes' e
+    'A melhorar'. Tipo 2 (automáticas): regras atuais mantidas, agrupadas
+    em 'automaticas'.
+    """
+    obs = r.get("observacoes") or {}
+    manuais = list(obs.get("gerais") or [])
+    for lista in (obs.get("por_quesito") or {}).values():
+        manuais.extend(lista)
+    pontos_fortes: list[str] = []
+    a_melhorar: list[str] = []
+    outras: list[str] = []
+    for texto in manuais:
+        for parte in re.split(r"[.;\n]+", texto):
+            parte = parte.strip().strip("Ótimo!A melhorar:-").strip()
+            if not parte:
+                continue
+            grupo = _classificar_observacao(parte)
+            if grupo == "forte":
+                pontos_fortes.append(parte)
+            elif grupo == "melhorar":
+                a_melhorar.append(parte)
+            else:
+                outras.append(parte)
+    automaticas = [o.get("texto", "")
+                   for o in (r.get("observacoes_automaticas") or [])]
+    return {"pontos_fortes": pontos_fortes, "a_melhorar": a_melhorar,
+            "outras": outras, "automaticas": automaticas}
+
+
+def _contradicoes_aluno(r: dict) -> list[str]:
+    """Detecta contradições de observação a partir dos textos presentes.
+
+    Para cada par de config/observacoes_contradicoes.json (mesmo tópico em
+    'Ótimo!' e 'A Melhorar'), verifica se o texto positivo e o negativo
+    aparecem juntos nas observações do aluno. Quando detecta, a regra anula
+    ambas (a observação montada já as remove) e indica a contradição.
+    """
+    obs = r.get("observacoes") or {}
+    textos = list(obs.get("gerais") or [])
+    for lista in (obs.get("por_quesito") or {}).values():
+        textos.extend(lista)
+    bloco = " ".join(textos).lower()
+
+    contradicoes = []
+    for p in _carregar_pares_contradicao():
+        otimo_txt = OBS_POSITIVAS.get(p.get("otimo", ""), "").lower()
+        melhorar_txt = OBS_MELHORAR.get(p.get("melhorar", ""), "").lower()
+        if (otimo_txt and melhorar_txt
+                and otimo_txt in bloco and melhorar_txt in bloco):
+            contradicoes.append(
+                f"{p.get('topico', '').capitalize()} marcado como Ótimo! e "
+                f"A Melhorar simultaneamente — marcações anuladas")
+    return contradicoes
 
 
 def nivel_por_fc(fc: float) -> str:
@@ -153,16 +266,6 @@ def _grupo_por_status(resultados: list[dict]) -> dict[str, list[dict]]:
     return grupos
 
 
-def _observacoes_aluno(r: dict) -> dict:
-    obs = r.get("observacoes") or {}
-    manuais = list(obs.get("gerais") or [])
-    for lista in (obs.get("por_quesito") or {}).values():
-        manuais.extend(lista)
-    automaticas = [o.get("texto", "")
-                   for o in (r.get("observacoes_automaticas") or [])]
-    return {"manuais": manuais, "automaticas": automaticas}
-
-
 def _resumo_aluno(r: dict) -> dict:
     return {"aluno_id": r.get("aluno_id", "?"),
             "faixa": r.get("faixa", ""),
@@ -230,7 +333,9 @@ def gerar_relatorio_sensei(resultados: list[dict], regras: dict,
     """Relatório do Sensei: status agregado + desempenho individual por aluno.
 
     Para cada aluno presente, mostra a nota de cada quesito e os pontos de
-    atenção (só o nome do critério — enxuto). Ausentes em lista própria.
+    atenção (só o nome do critério — enxuto). Observações (Tipo 1) separadas
+    em Pontos fortes / A melhorar, (Tipo 2) automáticas, e contradições.
+    Ausentes em lista própria.
     """
     n_total = len(resultados)
     presentes = [r for r in resultados if r.get("status") != "AUSENTE"]
@@ -264,6 +369,10 @@ def gerar_relatorio_sensei(resultados: list[dict], regras: dict,
             {"aluno_id": r.get("aluno_id", "?"),
              "status": r.get("status", "?"),
              **_observacoes_aluno(r)}
+            for r in resultados
+        ],
+        "contradicoes": [
+            {"aluno_id": r.get("aluno_id", "?"), "itens": _contradicoes_aluno(r)}
             for r in resultados
         ],
     }
@@ -305,15 +414,32 @@ def gerar_relatorio_sensei(resultados: list[dict], regras: dict,
         linhas.append("- (nenhum aluno presente)")
     linhas.append("")
 
-    linhas.append("OBSERVACOES GERAIS:")
+    linhas.append("OBSERVACOES POR ALUNO:")
     for obs in dados["observacoes"]:
         linhas.append(f"- {obs['aluno_id']} ({obs['status']}):")
-        if obs["manuais"]:
-            linhas.append(f"    Avaliador: {'; '.join(obs['manuais'])}")
+        if obs["pontos_fortes"]:
+            linhas.append("    Pontos fortes: " + "; ".join(obs["pontos_fortes"]))
+        if obs["a_melhorar"]:
+            linhas.append("    A melhorar: " + "; ".join(obs["a_melhorar"]))
+        if obs["outras"]:
+            linhas.append("    Outras: " + "; ".join(obs["outras"]))
         if obs["automaticas"]:
-            linhas.append(f"    Automaticas: {'; '.join(obs['automaticas'])}")
-        if not obs["manuais"] and not obs["automaticas"]:
+            linhas.append("    Automaticas: " + "; ".join(obs["automaticas"]))
+        if not any([obs["pontos_fortes"], obs["a_melhorar"],
+                    obs["outras"], obs["automaticas"]]):
             linhas.append("    (sem observações)")
+    linhas.append("")
+
+    linhas.append("CONTRADICOES:")
+    tem_contradicao = False
+    for c in dados["contradicoes"]:
+        if c["itens"]:
+            tem_contradicao = True
+            for item in c["itens"]:
+                linhas.append(f"- {c['aluno_id']}: {item}")
+    if not tem_contradicao:
+        linhas.append("- (nenhuma contradição detectada)")
+    linhas.append("")
 
     return "\n".join(linhas), dados
 
@@ -348,7 +474,8 @@ def gerar_relatorio_master(resultados_dojos: list[dict], regras: dict,
 
     - Média percentual de marcações por quesito (ranking, média geral);
     - Resumo do dojo (média e aprovação);
-    - Bloco por aluno (mais detalhado, com quesitos e recomendações completas).
+    - Bloco por aluno (mais detalhado, com quesitos, recomendações completas,
+      observações e contradições).
 
     Percentuais calculados sobre os PRESENTES (ausentes não são avaliados).
     Devolve (texto, json).
@@ -409,7 +536,9 @@ def gerar_relatorio_master(resultados_dojos: list[dict], regras: dict,
          "nota_final": r.get("nota_final", 0.0),
          "notas_por_quesito": _notas_por_quesito(r),
          "pontos_atencao": _pontos_atencao(r, recomendacoes,
-                                           com_recomendacao=True)}
+                                           com_recomendacao=True),
+         "observacoes": _observacoes_aluno(r),
+         "contradicoes": _contradicoes_aluno(r)}
         for r in todos_presentes
     ]
 
@@ -442,7 +571,26 @@ def gerar_relatorio_master(resultados_dojos: list[dict], regras: dict,
     linhas.append("DESEMPENHO POR ALUNO:")
     for r in todos_presentes:
         linhas.extend(_bloco_aluno(r, recomendacoes, com_recomendacao=True))
+        obs_aluno = _observacoes_aluno(r)
+        if obs_aluno["pontos_fortes"]:
+            linhas.append("  Pontos fortes: " + "; ".join(obs_aluno["pontos_fortes"]))
+        if obs_aluno["a_melhorar"]:
+            linhas.append("  A melhorar: " + "; ".join(obs_aluno["a_melhorar"]))
+        if obs_aluno["automaticas"]:
+            linhas.append("  Automaticas: " + "; ".join(obs_aluno["automaticas"]))
         linhas.append("")
+
+    linhas.append("CONTRADICOES:")
+    tem_contradicao = False
+    for r in todos_presentes:
+        contradicoes = _contradicoes_aluno(r)
+        if contradicoes:
+            tem_contradicao = True
+            for item in contradicoes:
+                linhas.append(f"- {r.get('aluno_id', '?')}: {item}")
+    if not tem_contradicao:
+        linhas.append("- (nenhuma contradição detectada)")
+    linhas.append("")
 
     return "\n".join(linhas), dados
 
