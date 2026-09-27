@@ -163,12 +163,13 @@ def test_formatar_consolidado_dojo():
 
 # --- Tendências ---
 
-def test_tendencias_moda_e_exercicio():
+def test_tendencias_moda_e_recomendacao():
     alunos = [aluno_com({"kihon": ["base_incorreta"]}) for _ in range(4)]
     texto = relatorio_tendencias(alunos, RECOMENDACOES)
     assert "Moda do exame" in texto
     assert "Kihon - Base incorreta" in texto
-    assert "Kihon de bases" in texto  # exercício corretivo da biblioteca
+    # Recomendação (o bloco 'exercicios' foi removido do recomendacoes.json)
+    assert "Reforçar fundamentos de postura" in texto
 
 # --- Master multi-dojo ---
 

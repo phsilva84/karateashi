@@ -3,11 +3,11 @@
 Duas camadas de geração (novas, usadas pelo pipeline):
   - gerar_relatorio_sensei : operacional, por dojo/exame. Inclui, por aluno,
     a nota de cada quesito (Kihon/Kata/Bunkai/Kumite) e os pontos de atenção
-    (critérios marcados com a recomendação), além do resumo de status e
-    observações gerais.
+    (só o nome do critério marcado, para manter enxuto), além do resumo de
+    status e observações gerais.
   - gerar_relatorio_master : estratégico, multi-dojo. Média percentual de
     marcações por quesito (ranking), resumo do dojo (média/aprovação) e um
-    bloco por aluno (mais detalhado, com quesitos e recomendações).
+    bloco por aluno (mais detalhado, com quesitos e recomendações completas).
 
 Cada gerador devolve (texto, json): o texto vai para Telegram/leitura e o
 JSON estruturado fica disponível para o pipeline. Os diretórios de saída são
@@ -175,21 +175,30 @@ def _notas_por_quesito(r: dict) -> dict[str, float]:
             for q in QUESITOS_ORDEM}
 
 
-def _pontos_atencao(r: dict, recomendacoes: dict) -> list[str]:
-    """Critérios marcados (fc>0) do aluno, com a recomendação completa."""
+def _pontos_atencao(r: dict, recomendacoes: dict,
+                    com_recomendacao: bool = False) -> list[str]:
+    """Critérios marcados (fc>0) do aluno.
+
+    com_recomendacao=False -> só o nome (ex.: "Base Incorreta (Kihon)");
+    com_recomendacao=True  -> nome + recomendação completa.
+    """
     itens = []
     for q in QUESITOS_ORDEM:
         qdata = r.get("quesitos", {}).get(q, {}) or {}
         for chave, det in qdata.get("detalhes", {}).items():
             if det.get("fc", 0) > 0:
                 nome_c = det.get("nome") or NOME_CRITERIO.get(chave, chave)
-                rec = recomendacoes.get(chave, "")
                 rotulo = f"{nome_c} ({NOME_QUESITO[q]})"
-                itens.append(f"{rotulo}: {rec}" if rec else rotulo)
+                if com_recomendacao:
+                    rec = recomendacoes.get(chave, "")
+                    itens.append(f"{rotulo}: {rec}" if rec else rotulo)
+                else:
+                    itens.append(rotulo)
     return itens
 
 
-def _bloco_aluno(r: dict, recomendacoes: dict) -> list[str]:
+def _bloco_aluno(r: dict, recomendacoes: dict,
+                 com_recomendacao: bool = False) -> list[str]:
     """Bloco de desempenho individual de um aluno (nota por quesito + atenção)."""
     linhas = []
     nome = r.get("aluno_id", "?")
@@ -203,11 +212,9 @@ def _bloco_aluno(r: dict, recomendacoes: dict) -> list[str]:
     notas_q = _notas_por_quesito(r)
     linhas.append("  " + " | ".join(
         f"{NOME_QUESITO[q]}: {notas_q[q]}" for q in QUESITOS_ORDEM))
-    atencao = _pontos_atencao(r, recomendacoes)
+    atencao = _pontos_atencao(r, recomendacoes, com_recomendacao)
     if atencao:
-        linhas.append("  Pontos de atenção:")
-        for a in atencao:
-            linhas.append(f"    - {a}")
+        linhas.append("  Pontos de atenção: " + "; ".join(atencao))
     else:
         linhas.append("  Pontos de atenção: (nenhum)")
     return linhas
@@ -223,7 +230,7 @@ def gerar_relatorio_sensei(resultados: list[dict], regras: dict,
     """Relatório do Sensei: status agregado + desempenho individual por aluno.
 
     Para cada aluno presente, mostra a nota de cada quesito e os pontos de
-    atenção (critérios marcados com a recomendação). Ausentes em lista própria.
+    atenção (só o nome do critério — enxuto). Ausentes em lista própria.
     """
     n_total = len(resultados)
     presentes = [r for r in resultados if r.get("status") != "AUSENTE"]
@@ -249,7 +256,8 @@ def gerar_relatorio_sensei(resultados: list[dict], regras: dict,
              "status": r.get("status", "?"),
              "nota_final": r.get("nota_final", 0.0),
              "notas_por_quesito": _notas_por_quesito(r),
-             "pontos_atencao": _pontos_atencao(r, recomendacoes)}
+             "pontos_atencao": _pontos_atencao(r, recomendacoes,
+                                               com_recomendacao=False)}
             for r in presentes
         ],
         "observacoes": [
@@ -290,7 +298,8 @@ def gerar_relatorio_sensei(resultados: list[dict], regras: dict,
     linhas.append("DESEMPENHO POR ALUNO:")
     if presentes:
         for r in presentes:
-            linhas.extend(_bloco_aluno(r, recomendacoes))
+            linhas.extend(_bloco_aluno(r, recomendacoes,
+                                       com_recomendacao=False))
             linhas.append("")
     else:
         linhas.append("- (nenhum aluno presente)")
@@ -339,7 +348,7 @@ def gerar_relatorio_master(resultados_dojos: list[dict], regras: dict,
 
     - Média percentual de marcações por quesito (ranking, média geral);
     - Resumo do dojo (média e aprovação);
-    - Bloco por aluno (mais detalhado, com quesitos e recomendações).
+    - Bloco por aluno (mais detalhado, com quesitos e recomendações completas).
 
     Percentuais calculados sobre os PRESENTES (ausentes não são avaliados).
     Devolve (texto, json).
@@ -391,7 +400,7 @@ def gerar_relatorio_master(resultados_dojos: list[dict], regras: dict,
         for q, v in media_quesitos.items()
     }
 
-    # Bloco por aluno (mais detalhado)
+    # Bloco por aluno (mais detalhado — com recomendações completas)
     alunos_json = [
         {"aluno_id": r.get("aluno_id", "?"),
          "faixa": r.get("faixa", ""),
@@ -399,7 +408,8 @@ def gerar_relatorio_master(resultados_dojos: list[dict], regras: dict,
          "status": r.get("status", "?"),
          "nota_final": r.get("nota_final", 0.0),
          "notas_por_quesito": _notas_por_quesito(r),
-         "pontos_atencao": _pontos_atencao(r, recomendacoes)}
+         "pontos_atencao": _pontos_atencao(r, recomendacoes,
+                                           com_recomendacao=True)}
         for r in todos_presentes
     ]
 
@@ -431,7 +441,7 @@ def gerar_relatorio_master(resultados_dojos: list[dict], regras: dict,
 
     linhas.append("DESEMPENHO POR ALUNO:")
     for r in todos_presentes:
-        linhas.extend(_bloco_aluno(r, recomendacoes))
+        linhas.extend(_bloco_aluno(r, recomendacoes, com_recomendacao=True))
         linhas.append("")
 
     return "\n".join(linhas), dados
@@ -534,7 +544,11 @@ def formatar_consolidado_dojo(consolidado: dict) -> str:
 
 
 def relatorio_tendencias(resultados_alunos: list[dict], recomendacoes: dict) -> str:
-    """Tendências (legado) — agregação em %, moda e narrativa por intensidade."""
+    """Tendências (legado) — agregação em %, moda e narrativa por intensidade.
+
+    Usa a RECOMENDAÇÃO (config/recomendacoes.json) — o bloco 'exercicios'
+    foi removido.
+    """
     n = len(resultados_alunos)
     if n == 0:
         return "RELATORIO DE TENDENCIAS\n\nSem alunos avaliados."
@@ -559,12 +573,12 @@ def relatorio_tendencias(resultados_alunos: list[dict], recomendacoes: dict) -> 
     for (quesito, chave), count in sorted(presenca.items(), key=lambda x: -x[1]):
         media_fc = soma_fc[(quesito, chave)] / count
         nivel = nivel_por_fc(media_fc)
-        exercicio = recomendacoes.get("exercicios", {}).get(chave, "")
+        rec = recomendacoes.get(chave, "")   # recomendação (não exercicios)
         linhas.append(f"[{nivel}] {NOME_QUESITO[quesito]} - "
                       f"{NOME_CRITERIO.get(chave, chave)} "
                       f"({count}/{n} alunos, média fc {media_fc:.1f})")
-        if exercicio:
-            linhas.append(f" Exercício corretivo: {exercicio}")
+        if rec:
+            linhas.append(f" Recomendação: {rec}")
     return "\n".join(linhas)
 
 
