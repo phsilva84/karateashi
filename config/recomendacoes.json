@@ -1,33 +1,20 @@
 {
-  "base_incorreta": "Reforçar fundamentos de postura: largura, profundidade e distribuição de peso (Kiba-dachi, Zenkutsu-dachi).",
-  "execucao_tecnica_incorreta": "Revisar trajetória dos golpes, rotação de punho e recolhimento.",
-  "movimento_sem_carga": "Trabalhar transferência de peso e contração final (Kime).",
-  "falta_foco": "Treinar direcionamento do olhar (Metsuke) e concentração no alvo.",
-  "perda_equilibrio": "Exercícios de estabilidade, centro de gravidade e transições de base.",
-  "ausencia_kiai": "Praticar expiração forte e projeção vocal sincronizada com a técnica.",
-  "embusen_incorreto": "Reestudar o traçado do Kata e os pontos de retorno.",
-  "falta_ritmo": "Trabalhar cadência, pausas e fluidez respeitando o embusen.",
-  "distancia_inadequada": "Treinar controle de Ma-ai: distância de engajamento e recuo.",
-  "falta_combatividade": "Estimular atitude ofensiva, entrada e contra-ataque sem passividade.",
-  "falta_controle": "Reforçar controle de impacto e segurança do parceiro — prioridade absoluta.",
+  "base_incorreta": "Reforçar fundamentos de postura: largura, profundidade e distribuição de peso. Recomendação: (exercícios de agilidade e fortalecimento das pernas)",
+  "execucao_tecnica_incorreta": "Revisar trajetória dos golpes, rotação de punho e quadril. Recomendação: (Repetição de movimentos específicos, Sensei deve demonstrar de forma cadenciada e utilizar a Oratória para que os alunos entendam a execução correta dos movimentos)",
+  "movimento_sem_carga": "Trabalhar transferência de peso e contração final (Kime). Recomendação: (Treinos práticos de Bunkai com contato técnico controlado)",
+  "falta_foco": "Treinar direcionamento do olhar (Metsuke) e concentração no alvo. Recomendação: (Sensei não deve apenas fazer demonstrações técnicas, mas conversar com o grupo sobre a importância do foco como disciplina no Karatê)",
+  "perda_equilibrio": "Exercícios de estabilidade, centro de gravidade e transições de base. Recomendação: (Exercícios práticos de equilíbrio, utilizando equipamentos apropriados ou o próprio corpo, como calistenia)",
+  "ausencia_kiai": "Praticar expiração forte e projeção vocal sincronizada com a técnica. Recomendação: (Treino em conjunto e individual de respiração, para entendimento e ganho de confiança; Sensei não deve focar apenas na prática, mas explicar o motivo e importância do Kiai)",
+  "embusen_incorreto": "Reestudar o traçado do Kata e os pontos de retorno. Recomendação: (Recortar o Kata em pequenas partes e treinar repetição de cada trecho até conseguir completá-lo inteiro)",
+  "falta_ritmo": "Trabalhar cadência, pausas e fluidez respeitando o embusen. Recomendação: (Recortar o Kata em pequenas partes e treinar repetição, no ritmo ideal, até conseguir completá-lo inteiro)",
+  "distancia_inadequada": "Treinar controle de Ma-ai: distância de engajamento e recuo. Recomendação: (Exercícios práticos frente a frente, transições de bases e contato controlado)",
+  "falta_combatividade": "Estimular atitude ofensiva, entrada e contra-ataque sem passividade. Recomendação: (Mais que exercícios práticos e técnicos, Sensei deve utilizar a oratória para que os alunos ganhem confiança e percam o receio de realizar o combate)",
+  "falta_controle": "Reforçar controle de impacto e segurança do parceiro — prioridade absoluta. Recomendação: (Técnica é o controle absoluto da potência do golpe; treinos frente a frente devem ser realizados com frequência, e a oratória do Sensei sobre a importância de preservar a integridade dos companheiros de treino, sem perder o real objetivo do controle técnico)",
   "elogio_transversal": "Base exemplar: nenhuma marcação de {criterio} em {quesitos}.",
   "elogio_quesito_perfeito": "{quesito} impecável: nenhuma falha registrada pelos avaliadores.",
   "destaque_geral": "Destaque do exame: excelência técnica consistente em todas as categorias.",
-  "exercicios": {
-    "base_incorreta": "Kihon de bases: 3 séries de 10 repetições alternando Kiba-dachi e Zenkutsu-dachi, pausa de 5s por base, conferindo largura e distribuição de peso.",
-    "execucao_tecnica_incorreta": "Treino de trajetória: repetir Oi-zuki e Gyaku-zuki em câmera lenta, conferindo rotação de punho e recolhimento no quadril.",
-    "movimento_sem_carga": "Trabalhar Kime: golpes com contração final e transferência de peso, 3 séries de 10 com pausa no impacto.",
-    "falta_foco": "Drill de Metsuke: executar sequências curtas olhando fixamente para o alvo, sem desviar o olhar.",
-    "perda_equilibrio": "Exercícios de estabilidade: 1 minuto em Kiba-dachi, transições lentas entre bases e subidas em um pé só.",
-    "ausencia_kiai": "Praticar kiai em cada técnica final de sequência, com expiração forte e projeção vocal do abdômen.",
-    "embusen_incorreto": "Reestudar o embusen do Kata com marcações no chão (fitas) e repetir os pontos de retorno.",
-    "falta_ritmo": "Treinar o Kata com metrônomo ou contagem do Sensei, respeitando pausas e cadência do embusen.",
-    "distancia_inadequada": "Drill de Ma-ai: duplas alternando entrada e recuo, controlando distância de engajamento.",
-    "falta_combatividade": "Kumite progressivo: estimular entrada e contra-ataque, com foco em atitude ofensiva sem passividade.",
-    "falta_controle": "Kumite controlado: treinar impacto dosado no alvo (foco e recuo do golpe) — prioridade absoluta de segurança."
-  },
   "_notas": {
     "falta_combatividade": "Presente na biblioteca oficial, porém sem código A1-A12 correspondente — mantido para compatibilidade (vigente na matriz de Kumite v2.0).",
-    "criterios_extintos_removidos": "A9 (defesa_incompleta) e A12 (tensao_respiracao) removidos na Fase 4 — não vigentes em nenhuma matriz v2.0. O mapeamento 9/12 permanece apenas no migrador de legados (tools/migrar_legados_v2.py), para detectar e descartar esses códigos com aviso, nunca relocá-los."
+    "criterios_extintos_removidos": "A9 (defesa_incompleta) e A12 (tensao_respiracao) removidos na Fase 4 — não vigentes em nenhuma matriz v2.0."
   }
 }
