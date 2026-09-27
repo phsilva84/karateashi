@@ -145,7 +145,7 @@ def _observacoes_aluno(r: dict) -> dict:
     outras: list[str] = []
     for texto in manuais:
         for parte in re.split(r"[.;\n]+", texto):
-            parte = parte.strip().strip("Ótimo!A melhorar:-").strip()
+            parte = parte.strip().strip("Bom!A melhorar:-").strip()
             if not parte:
                 continue
             grupo = _classificar_observacao(parte)
@@ -177,12 +177,12 @@ def _contradicoes_aluno(r: dict) -> list[str]:
 
     contradicoes = []
     for p in _carregar_pares_contradicao():
-        otimo_txt = OBS_POSITIVAS.get(p.get("otimo", ""), "").lower()
+        otimo_txt = OBS_POSITIVAS.get(p.get("bom", ""), "").lower()
         melhorar_txt = OBS_MELHORAR.get(p.get("melhorar", ""), "").lower()
         if (otimo_txt and melhorar_txt
                 and otimo_txt in bloco and melhorar_txt in bloco):
             contradicoes.append(
-                f"{p.get('topico', '').capitalize()} marcado como Ótimo! e "
+                f"{p.get('topico', '').capitalize()} marcado como Bom! e "
                 f"A Melhorar simultaneamente — marcações anuladas")
     return contradicoes
 

@@ -5,7 +5,6 @@ para todas as faixas:
 
     'Ótimo!'     -> obs_p1..obs_p6   (pontos fortes)
     'A Melhorar' -> obs_m1..obs_m6   (correções)
-
 O OMR lê as ROIs 'obs_*' na mesma passada dos códigos de erro e grava no
 JSON intermediário:
 
@@ -13,14 +12,17 @@ JSON intermediário:
 
 Este módulo é o MAPEADOR chave -> texto: converte as chaves marcadas na
 observação legível do relatório (observacao_montada).
-
 Fonte única do vocabulário: OBS_POSITIVAS e OBS_MELHORAR definidas AQUI.
 O tools/pre_exame.py IMPORTA essas constantes para desenhar a seção —
 folha e relatório nunca divergem (princípio dos gêmeos).
 
+CONTRADIÇÕES: quando o MESMO avaliador marca o positivo e o negativo do
+MESMO tópico (ex.: obs_p1 'Boa execução dos Kihons' + obs_m1 'Dificuldade
+nos Kihon'), a regra ANULA ambas as marcações e indica a contradição no
+relatório. Os pares válidos ficam em config/observacoes_contradicoes.json.
+
 Observações AUTOMÁTICAS (derivadas das frequências por regras) ficam em
 core/observacoes_automaticas.py — módulo separado e complementar.
-
 Integração:
     # OMR (Fase 03) — após ler as ROIs de observação:
     from core import observacoes
@@ -30,9 +32,11 @@ Integração:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+
+from core.config import carregar_json
 
 log = logging.getLogger("karate-ashi.observacoes")
-
 # --- Vocabulário oficial das observações (v4.9 — 6+6) ----------------------
 # Única fonte de verdade: a folha desenha e o relatório lê esta lista.
 # Não duplicar em outro módulo — importe daqui.
@@ -55,7 +59,7 @@ OBS_MELHORAR = {
 }
 
 _COLUNAS = (
-    ("Ótimo!", OBS_POSITIVAS),
+    ("Bom!", OBS_POSITIVAS),
     ("A Melhorar", OBS_MELHORAR),
 )
 
@@ -76,32 +80,69 @@ def _ordem_canonica(chave: str) -> tuple[int, int]:
     return (0 if prefixo == "p" else 1, _ordem(chave))
 
 
-def montar_observacao(marcadas: list[str]) -> str:
-    """Converte chaves marcadas no texto da observação (sem prefácios).
+def _carregar_pares(caminho: Path | None = None) -> list[dict]:
+    """Carrega os pares de contradição de config/observacoes_contradicoes.json."""
+    caminho = caminho or Path(__file__).resolve().parents[1] / "config" / \
+        "observacoes_contradicoes.json"
+    try:
+        return carregar_json(caminho).get("pares", [])
+    except Exception:  # noqa: BLE001 — config ausente/inválida não quebra o fluxo
+        return []
 
-    Ex.: ["obs_p1", "obs_m2"] ->
-         "Boa execucao dos Kihons; Dificuldade no Kata"
 
-    Ordena pelas colunas da folha (BOM! antes de A MELHORAR) e, dentro de
-    cada coluna, pela ordem impressa. Chaves desconhecidas são ignoradas
-    com aviso (proteção contra vocabulário divergente).
+def detectar_contradicoes(marcadas: list[str],
+                          pares: list[dict] | None = None) -> list[dict]:
+    """Detecta contradições: mesmo tópico marcado como Ótimo! e A Melhorar.
+
+    Retorna a lista de pares contraditórios {topico, otimo, melhorar}.
+    Ex.: marcar obs_p1 e obs_m1 juntos -> [{"topico": "kihon", ...}].
     """
-    positivas = sorted((c for c in marcadas if c in OBS_POSITIVAS),
-                       key=_ordem)
-    melhorar = sorted((c for c in marcadas if c in OBS_MELHORAR),
-                      key=_ordem)
+    pares = pares if pares is not None else _carregar_pares()
+    marcadas_set = set(marcadas)
+    return [p for p in pares
+            if p["otimo"] in marcadas_set and p["melhorar"] in marcadas_set]
+
+
+def montar_observacao(marcadas: list[str],
+                      pares: list[dict] | None = None) -> str:
+    """Converte chaves marcadas na observação legível do relatório.
+
+    Detecta contradições (mesmo tópico em Bom! e A Melhorar), ANULA as
+    marcações contraditórias e indica a contradição no texto.
+
+    Ex.: ["obs_p1", "obs_m1", "obs_m6"] ->
+         "Boa execucao dos Kihons; Nervosismo Constante. CONTRADIÇÃO: Kihon
+          marcado como Bom! e A Melhorar simultaneamente — marcações anuladas."
+
+    Ordena por coluna (Bom! antes de A Melhorar) e, dentro de cada coluna,
+    pela ordem impressa na folha. Chaves desconhecidas são ignoradas.
+    """
+    contradicoes = detectar_contradicoes(marcadas, pares)
+    chaves_anuladas = set()
+    for p in contradicoes:
+        chaves_anuladas.add(p["otimo"])
+        chaves_anuladas.add(p["melhorar"])
+    marcadas = [c for c in marcadas if c not in chaves_anuladas]
+
+    positivas = sorted((c for c in marcadas if c in OBS_POSITIVAS), key=_ordem)
+    melhorar = sorted((c for c in marcadas if c in OBS_MELHORAR), key=_ordem)
     desconhecidas = [c for c in marcadas
                      if c not in OBS_POSITIVAS and c not in OBS_MELHORAR]
     if desconhecidas:
         log.warning("chaves de observação desconhecidas ignoradas: %s",
                     desconhecidas)
-    textos = [OBS_POSITIVAS[c] for c in positivas]
-    textos += [OBS_MELHORAR[c] for c in melhorar]
-    return "; ".join(textos)
+    partes = []
+    partes.extend(OBS_POSITIVAS[c] for c in positivas)
+    partes.extend(OBS_MELHORAR[c] for c in melhorar)
+    for p in contradicoes:
+        partes.append(
+            f"CONTRADIÇÃO: {p['topico'].capitalize()} marcado como Bom! "
+            f"e A Melhorar simultaneamente — marcações anuladas.")
+    return "; ".join(partes)
 
 
 def merge_no_json(resultado: dict) -> dict:
-    """Constrói 'observacao_montada' a partir de 'observacoes_marcadas'.
+    """Constrói 'observacao_montada' e 'contradicoes' a partir das marcadas.
 
     Não lê CSV. O OMR deve ter gravado resultado['observacoes_marcadas']
     (lista de chaves obs_*). Mantém este nome de função para a chamada
@@ -113,7 +154,10 @@ def merge_no_json(resultado: dict) -> dict:
     """
     marcadas = set(str(c) for c in resultado.get("observacoes_marcadas", []) or [])
     resultado["observacoes_marcadas"] = sorted(marcadas, key=_ordem_canonica)
-    resultado["observacao_montada"] = montar_observacao(resultado["observacoes_marcadas"])
+    resultado["contradicoes"] = detectar_contradicoes(
+        resultado["observacoes_marcadas"])
+    resultado["observacao_montada"] = montar_observacao(
+        resultado["observacoes_marcadas"])
     log.info("observação montada: %r", resultado["observacao_montada"])
     return resultado
 
