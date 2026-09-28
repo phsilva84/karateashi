@@ -145,7 +145,7 @@ def _observacoes_aluno(r: dict) -> dict:
     outras: list[str] = []
     for texto in manuais:
         for parte in re.split(r"[.;\n]+", texto):
-            parte = parte.strip().strip("Bom!A melhorar:-").strip()
+            parte = parte.strip()
             if not parte:
                 continue
             grupo = _classificar_observacao(parte)
