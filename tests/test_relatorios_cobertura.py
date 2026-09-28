@@ -249,7 +249,7 @@ def test_gerar_relatorio_master_completo(monkeypatch):
     assert dados["dojos"][0]["media"] == 90.0
     assert dados["dojos"][0]["taxa_aprovacao"] == 100.0
     assert dados["dojos"][1]["taxa_atencao"] == 100.0
-    assert dados["media_quesitos"]["kihon"]["pct"] > 0
+    assert dados["media_quesitos"]["kihon"]["media_pct"] > 0
     assert len(dados["alunos"]) == 2
 
     assert "Dojos considerados: 2" in texto
