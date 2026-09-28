@@ -78,7 +78,7 @@ def test_carregar_faixa_rejeita_placeholder(base_cfg: Path):
     from core.engine import carregar_faixa
 
     with pytest.raises(ValueError, match="não suportada"):
-        carregar_faixa(base_cfg, "roxa")
+        carregar_faixa(base_cfg, "marrom")
 
 def test_carregar_faixa_rejeita_inexistente(base_cfg: Path):
     from core.engine import carregar_faixa

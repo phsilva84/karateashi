@@ -19,7 +19,7 @@ QUESITOS = ["kihon", "kata", "bunkai", "kumite"]
 
 # Faixas com matriz de critérios v2.0 (roxa/marrom/preta são placeholders).
 FAIXAS_SUPORTADAS = ["branca", "amarela", "laranja", "verde", "azul"]
-FAIXAS_PLACEHOLDER = ["roxa", "marrom", "preta"]
+FAIXAS_PLACEHOLDER = ["marrom", "preta"]
 
 def carregar_json(caminho: Path) -> dict:
     """Lê um JSON de configuração. Falha com mensagem clara se inválido."""
