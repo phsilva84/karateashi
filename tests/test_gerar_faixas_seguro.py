@@ -42,10 +42,10 @@ def test_primeira_geracao_cria_arquivos(tmp_path: Path):
     g = _carregar_gerador()
     base = _montar_base(tmp_path)
     g.gerar(base)
-    for faixa in ("amarela", "laranja", "verde", "azul"):
+    for faixa in ("amarela", "laranja", "verde", "azul", "roxa"):
         assert (base / "faixas" / f"{faixa}.json").exists()
         assert (base / "coordenadas" / f"{faixa}.json").exists()
-    for faixa in ("roxa", "marrom", "preta"):
+    for faixa in ("marrom", "preta"):
         assert (base / "faixas" / f"{faixa}.json").exists()
 
 def test_recalibracao_manual_nao_e_sobrescrita(tmp_path: Path):

@@ -1,9 +1,9 @@
-{
-  "versao_template": "azul_v1",
-  "faixa": "azul",
+﻿{
+  "versao_template": "roxa_v1",
+  "faixa": "roxa",
   "pagina": "A4",
   "unidade": "mm",
-  "origem_y": "topo da página (imagem alinhada pós-perspectiva)",
+  "origem_y": "topo da pÃ¡gina (imagem alinhada pÃ³s-perspectiva)",
   "observacoes": {
     "obs_m1": {
       "x": 107.0,
