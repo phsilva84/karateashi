@@ -25,7 +25,7 @@ def test_vocabulario_chaves_sequenciais():
 def test_vocabulario_textos_esperados():
     """Textos oficiais do vocabulário 6+6 (fonte única da folha e relatório)."""
     assert observacoes.OBS_POSITIVAS["obs_p1"] == "Boa execucao dos Kihons"
-    assert observacoes.OBS_POSITIVAS["obs_p6"] == "Otimo Desempenho"
+    assert observacoes.OBS_POSITIVAS["obs_p6"] == "Bom Desempenho"
     assert observacoes.OBS_MELHORAR["obs_m2"] == "Dificuldade no Kata"
     assert observacoes.OBS_MELHORAR["obs_m6"] == "Nervosismo Constante"
 
@@ -52,7 +52,7 @@ def test_montar_observacao_ordem():
     """p antes de m; dentro da coluna, ordem impressa na folha."""
     texto = observacoes.montar_observacao(
         ["obs_m1", "obs_p6", "obs_p2", "obs_m4"])
-    assert texto == ("Bom dominio do Kata; Otimo Desempenho; "
+    assert texto == ("Bom dominio do Kata; Bom Desempenho; "
                      "Dificuldade nos Kihon; Dificuldade nos Kumites")
 
 
