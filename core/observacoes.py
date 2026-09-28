@@ -41,20 +41,20 @@ log = logging.getLogger("karate-ashi.observacoes")
 # Única fonte de verdade: a folha desenha e o relatório lê esta lista.
 # Não duplicar em outro módulo — importe daqui.
 OBS_POSITIVAS = {
-    "obs_p1": "Boa execucao dos Kihons",
-    "obs_p2": "Bom dominio do Kata",
-    "obs_p3": "Boa aplicacao do Bunkai",
-    "obs_p4": "Boa Conducao no Kumite",
-    "obs_p5": "Bom Dominio Tecnico",
-    "obs_p6": "Bom Desempenho",
+    "obs_p1": "Boa Execução do Kihon",
+    "obs_p2": "Bom Domínio no Kata",
+    "obs_p3": "Boa Aplicação do Bunkai",
+    "obs_p4": "Boa Condução no Kumite",
+    "obs_p5": "Bom Domínio Técnico",
+    "obs_p6": "Bom Desempenho Geral",
 }
 
 OBS_MELHORAR = {
-    "obs_m1": "Dificuldade nos Kihon",
+    "obs_m1": "Dificuldade no Kihon",
     "obs_m2": "Dificuldade no Kata",
     "obs_m3": "Dificuldade no Bunkai",
-    "obs_m4": "Dificuldade nos Kumites",
-    "obs_m5": "Erros Tecnicos Constantes",
+    "obs_m4": "Dificuldade no Kumite",
+    "obs_m5": "Erros Técnicos Constantes",
     "obs_m6": "Nervosismo Constante",
 }
 

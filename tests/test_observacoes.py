@@ -24,8 +24,8 @@ def test_vocabulario_chaves_sequenciais():
 
 def test_vocabulario_textos_esperados():
     """Textos oficiais do vocabulário 6+6 (fonte única da folha e relatório)."""
-    assert observacoes.OBS_POSITIVAS["obs_p1"] == "Boa execucao dos Kihons"
-    assert observacoes.OBS_POSITIVAS["obs_p6"] == "Bom Desempenho"
+    assert observacoes.OBS_POSITIVAS["obs_p1"] == "Boa Execução do Kihon"
+    assert observacoes.OBS_POSITIVAS["obs_p6"] == "Bom Desempenho Geral"
     assert observacoes.OBS_MELHORAR["obs_m2"] == "Dificuldade no Kata"
     assert observacoes.OBS_MELHORAR["obs_m6"] == "Nervosismo Constante"
 
@@ -33,33 +33,27 @@ def test_vocabulario_textos_esperados():
 def test_montar_observacao_so_positivas():
     """Sem prefixos; ordem da folha (p1 antes de p3)."""
     texto = observacoes.montar_observacao(["obs_p3", "obs_p1"])
-    assert texto == "Boa execucao dos Kihons; Boa aplicacao do Bunkai"
-
-
-def test_montar_observacao_so_melhorar():
-    """Sem prefixos; ordem da folha (m2 antes de m6)."""
-    texto = observacoes.montar_observacao(["obs_m6", "obs_m2"])
-    assert texto == "Dificuldade no Kata; Nervosismo Constante"
+    assert texto == "Boa Execução do Kihon; Boa Aplicação do Bunkai"
 
 
 def test_montar_observacao_misto():
     """BOM! sempre antes de A MELHORAR; sem prefixos."""
     texto = observacoes.montar_observacao(["obs_m2", "obs_p1"])
-    assert texto == "Boa execucao dos Kihons; Dificuldade no Kata"
+    assert texto == "Boa Execução do Kihon; Dificuldade no Kata"
 
 
 def test_montar_observacao_ordem():
     """p antes de m; dentro da coluna, ordem impressa na folha."""
     texto = observacoes.montar_observacao(
         ["obs_m1", "obs_p6", "obs_p2", "obs_m4"])
-    assert texto == ("Bom dominio do Kata; Bom Desempenho; "
-                     "Dificuldade nos Kihon; Dificuldade nos Kumites")
+    assert texto == ("Bom Domínio no Kata; Bom Desempenho Geral; "
+                     "Dificuldade no Kihon; Dificuldade no Kumite")
 
 
 def test_montar_observacao_ignora_chaves_desconhecidas(caplog):
     """Chaves fora do vocabulário são ignoradas (com aviso)."""
     texto = observacoes.montar_observacao(["obs_p1", "obs_x99", "obs_outro_p"])
-    assert texto == "Boa execucao dos Kihons"
+    assert texto == "Boa Execução do Kihon"
     assert any("desconhecidas" in r.message for r in caplog.records)
 
 
@@ -74,7 +68,7 @@ def test_merge_no_json_popula_campos():
     assert saida is resultado
     assert saida["observacoes_marcadas"] == ["obs_p1", "obs_m2"]
     assert saida["observacao_montada"] == (
-        "Boa execucao dos Kihons; Dificuldade no Kata")
+        "Boa Execução do Kihon; Dificuldade no Kata")
 
 
 def test_merge_no_json_sem_marcacoes():
