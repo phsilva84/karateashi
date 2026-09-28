@@ -71,7 +71,7 @@ def test_detectar_traz_texto_legivel_do_vocabulario():
     _, contras = detectar(["obs_p2", "obs_m2"], PARES_PADRAO)
     assert contras[0]["otimo_texto"] == VOCAB["obs_p2"]
     assert contras[0]["melhorar_texto"] == VOCAB["obs_m2"]
-    assert contras[0]["otimo_texto"] == "Bom dominio do Kata"
+    assert contras[0]["otimo_texto"] == "Bom Domínio no Kata"
     assert contras[0]["melhorar_texto"] == "Dificuldade no Kata"
 
 
@@ -115,15 +115,15 @@ def test_consolidar_agrega_por_aluno_e_avaliador():
     resultados = [
         _resultado("A02", "S01", [{
             "topico": "kata", "otimo": "obs_p2",
-            "otimo_texto": "Bom dominio do Kata",
+            "otimo_texto": "Bom Domínio no Kata",
             "melhorar": "obs_m2",
             "melhorar_texto": "Dificuldade no Kata",
         }]),
         _resultado("A07", "S02", [{
             "topico": "kumite", "otimo": "obs_p4",
-            "otimo_texto": "Boa Conducao no Kumite",
+            "otimo_texto": "Boa Condução no Kumite",
             "melhorar": "obs_m4",
-            "melhorar_texto": "Dificuldade nos Kumites",
+            "melhorar_texto": "Dificuldade no Kumite",
         }]),
     ]
     linhas = consolidar(resultados)
