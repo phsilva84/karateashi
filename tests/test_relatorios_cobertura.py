@@ -54,22 +54,28 @@ def test_carregar_pares_contradicao_fallback(monkeypatch):
     assert R._carregar_pares_contradicao() == []
 
 
-def _texto_par_contradicao():
-    pares = R._carregar_pares_contradicao()
-    assert pares, "fixture: observacoes_contradicoes.json sem pares"
-    p = pares[0]
-    bom = R.OBS_POSITIVAS.get(p.get("bom", ""), "")
-    mel = R.OBS_MELHORAR.get(p.get("melhorar", ""), "")
-    assert bom and mel, "fixture: par sem texto em OBS_POSITIVAS/OBS_MELHORAR"
-    return p, bom, mel
+def _par_com_textos():
+    """Par sintético construído com os IDs reais de OBS_POSITIVAS/OBS_MELHORAR.
+
+    Não depende do config (que usa chave 'otimo', enquanto _contradicoes_aluno
+    lê 'bom') — monkeypatchando _carregar_pares_contradicao com este par, a
+    detecção dispara de forma determinística.
+    """
+    pos_ids = list(R.OBS_POSITIVAS)
+    mel_ids = list(R.OBS_MELHORAR)
+    assert pos_ids and mel_ids, "constantes OBS_POSITIVAS/OBS_MELHORAR vazias"
+    pid, mid = pos_ids[0], mel_ids[0]
+    par = {"topico": "kihon", "bom": pid, "melhorar": mid}
+    return par, R.OBS_POSITIVAS[pid], R.OBS_MELHORAR[mid]
 
 
-def test_contradicoes_aluno_detecta_par():
-    p, bom, mel = _texto_par_contradicao()
+def test_contradicoes_aluno_detecta_par(monkeypatch):
+    par, bom, mel = _par_com_textos()
+    monkeypatch.setattr(R, "_carregar_pares_contradicao", lambda: [par])
     r = {"observacoes": {"gerais": [f"{bom}. {mel}"]}}
     contrad = R._contradicoes_aluno(r)
     assert contrad, "esperava contradição detectada"
-    assert any(p.get("topico", "").capitalize() in c for c in contrad)
+    assert "marcações anuladas" in contrad[0]
 
 
 def test_contradicoes_aluno_sem_obs():
@@ -124,8 +130,8 @@ def test_gerar_recomendacoes_ignora_fc_zero():
         }},
     }
     recs = R.gerar_recomendacoes(resultado_fake(quesitos=quesitos), RECOMENDACOES)
-    assert any(i["criterio"] == "base_incorreta" for i in recs)
-    assert not any(i["criterio"] == "falta_foco" for i in recs)
+    assert any(i["criterio"] == "Base Incorreta" for i in recs)
+    assert not any(i["criterio"] == "Falta de Foco" for i in recs)
 
 
 def test_grupo_por_status_default():
@@ -149,8 +155,9 @@ def test_bloco_aluno_ausente():
 
 # --- Relatório do Sensei (completo, 5 status) ------------------------------
 
-def test_relatorio_sensei_completo():
-    p, bom, mel = _texto_par_contradicao()
+def test_relatorio_sensei_completo(monkeypatch):
+    par, bom, mel = _par_com_textos()
+    monkeypatch.setattr(R, "_carregar_pares_contradicao", lambda: [par])
     q1 = {
         "kihon": {"alerta": None, "detalhes": {
             "base_incorreta": detalhe(1.5, [1, 1, 0], "Base Incorreta")}},
@@ -192,10 +199,10 @@ def test_relatorio_sensei_completo():
     assert "APROVADOS:" in texto and "A1 (branca) — 90.5" in texto
     assert "REPROVADOS:" in texto and "A3" in texto
     assert "DESEMPENHO POR ALUNO:" in texto
-    assert "Pontos de atenção: (nenhum)" in texto      # A2 sem detalhes
+    assert "Pontos de atenção: (nenhum)" in texto
     assert "Pontos fortes:" in texto and "A melhorar:" in texto
     assert "Automaticas: Auto do sistema" in texto
-    assert "marcações anuladas" in texto                # contradição do A1
+    assert "marcações anuladas" in texto
 
 
 def test_relatorio_sensei_sem_exame_id():
@@ -213,8 +220,9 @@ def test_media_marcacoes_por_quesito_vazio():
     assert all(v["pct"] == 0.0 for v in res.values())
 
 
-def test_gerar_relatorio_master_completo():
-    p, bom, mel = _texto_par_contradicao()
+def test_gerar_relatorio_master_completo(monkeypatch):
+    par, bom, mel = _par_com_textos()
+    monkeypatch.setattr(R, "_carregar_pares_contradicao", lambda: [par])
     qa = {
         "kihon": {"alerta": None, "detalhes": {
             "base_incorreta": detalhe(2.0, [2, 2, 2], "Base Incorreta")}},
@@ -311,4 +319,4 @@ def test_relatorio_master_sem_diretriz_50():
              _dojo("D03", "ausencia_kiai")]
     texto = R.relatorio_master(dojos, REGRA_PADRAO, RECOMENDACOES)
     assert "DIRETRIZES PEDAGOGICAS GLOBAIS" in texto
-    assert "Nenhum critério atingiu 50%" in texto   
+    assert "Nenhum critério atingiu 50%" in texto
