@@ -157,8 +157,8 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
     for aluno_id, avaliadores in agregar_por_aluno(folhas).items():
         metadados = avaliadores[0].get("metadados") or {}
         faixa = (metadados.get("faixa") or "branca").strip().lower()
-        dojo_id = metadados.get("dojo") or metadados.get("dojo_id") or "D01"
-        exame_id = metadados.get("exame") or ""
+        dojo_id = metadados.get("dojo_id") or metadados.get("dojo") or "D01"
+        exame_id = metadados.get("exame_id") or metadados.get("exame") or ""
         # REGRA: presença não marcada -> AUSENTE (não avaliar frequências).
         if any(av.get("presenca") != "PRESENTE" for av in avaliadores):
             resultados.append({
@@ -191,6 +191,7 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
         resultados.append(resultado)
     return resultados
 
+
 def gerar_obs_automaticas_do_aluno(avaliadores: list[dict], cfg: Path) -> list[dict]:
     """Gera observações automáticas a partir das frequências do OMR.
 
@@ -219,7 +220,8 @@ def gerar_obs_automaticas_do_aluno(avaliadores: list[dict], cfg: Path) -> list[d
     return observacoes_automaticas.merge_no_json(resultado, cfg)[
         "observacoes_automaticas"
     ]
-    
+
+
 def gerar_relatorios(resultados: list[dict], cfg: Path, output: Path,
                      regras_path: Path | None = None,
                      recomendacoes_path: Path | None = None) -> None:
@@ -296,10 +298,13 @@ def main() -> int:
         print(f"[AVISO] Nenhum JSON de OMR encontrado em {pasta_omr}")
         return 0
 
-    args.output.mkdir(parents=True, exist_ok=True)
+    # Resultados em subpasta dedicada (evita poluir a raiz de output/)
+    resultados_dir = args.output / "resultados"
+    resultados_dir.mkdir(parents=True, exist_ok=True)
     for r in resultados:
         aluno_id = r.get("aluno_id", "desconhecido")
-        caminho = args.output / f"resultado_{aluno_id}.json"
+        exame = r.get("exame_id") or "sem_exame"
+        caminho = resultados_dir / f"resultado_{exame}_{aluno_id}.json"
         caminho.write_text(json.dumps(r, ensure_ascii=False, indent=2),
                            encoding="utf-8")
         chaves = ", ".join(sorted(r.keys()))
