@@ -1,25 +1,32 @@
-"""core/relatorio_html.py — Relatório visual (HTML autossuficiente) do Karate-Ashi v2.0.
+"""core/relatorio_html.py — Relatório visual (HTML autossuficiente) do Karate-Ashi v2.1.
 
 Gera HTML com CSS embutido (sem dependências externas), pronto para preview no
-Google Drive, impressão em A4 e arquivamento. Reutiliza os dados estruturados
-do core.relatorios (resultado do processa_aluno e funções de relatório).
+Google Drive, impressão em A4 e arquivamento.
 
-Repartição de responsabilidades:
-  - Sensei (dojo): nota, notas por quesito (mini-barras), tabela de marcações
-    por quesito × avaliador (frequência real) e observações POR AVALIADOR
-    (com autoria). SEM recomendações, SEM agregados de dojo, SEM tendências.
-    Nome do aluno exibido COMPLETO (no relatório não há limite de espaço).
-  - Master (consolidado): o mais completo — desempenho por dojo, notas por
-    quesito por aluno, % de marcações dos critérios por quesito (intensidade
-    média 1 a 5), recomendações sugeridas (nº de alunos, %, intensidade média
-    e motivo) e observações dos avaliadores.
+Mudanças v2.1 (revisão do usuário):
+  1-2) Nome do AVALIADOR (não o ID) nas colunas de marcações e nas observações,
+       via config/avaliadores.json (avaliadores_map). Com 3 avaliadores, a
+       tabela de marcações ganha automaticamente 3 colunas.
+  3)   Observações separadas em "Pontos fortes (BOM!)" / "A melhorar" / "Outras"
+       por avaliador (classificação pelo vocabulário oficial de core/observacoes).
+  4)   Relatório do Sensei ganha bloco "Notas por Quesito" (ranking) + coluna
+       "Nova Faixa (se aprovado)" — progressão de faixas em config/faixas.json.
+  7)   Master: coluna "Intensidade média (1–5)" REMOVIDA de Critérios por Quesito.
+  8)   Master: "Recomendações Sugeridas" → rótulos únicos "Recomendação:" e
+       "Planejamento Sugerido:" por (quesito, critério). Lê a estrutura
+       'por_quesito' de config/recomendacoes.json (textos distintos por
+       quesito — ex.: Perda de Equilíbrio no Kihon ≠ no Kata), com fallback
+       para as chaves antigas na raiz.
+  9)   Master: novo bloco "Análise de Desempenho" (média por quesito + ranking,
+       foco do treino, alunos em atenção e destaque do exame).
 """
 from __future__ import annotations
-
 import html
+import json
 from datetime import datetime
 from pathlib import Path
 
+from core.observacoes import OBS_MELHORAR, OBS_POSITIVAS
 from core.relatorios import NOME_QUESITO, gerar_relatorio_master
 
 # --- Cores ----------------------------------------------------------------
@@ -37,6 +44,7 @@ COR_QUESITO = {
     "bunkai": "#b45309",
     "kumite": "#b91c1c",
 }
+_RAIZ = Path(__file__).resolve().parents[1]
 
 
 def _esc(t) -> str:
@@ -47,32 +55,141 @@ def _status_cor(status: str) -> tuple[str, str]:
     return COR_STATUS.get(status, ("#6a737d", "#eef1f4"))
 
 
-def _texto_recomendacao(recomendacoes: dict, chave: str) -> str:
-    """Texto da recomendação de forma tolerante (str ou dict)."""
-    v = (recomendacoes or {}).get(chave, "")
+# --- Config auxiliar (avaliadores + faixas) ---------------------------------
+def _carregar_avaliadores_map() -> dict[str, str]:
+    """{'S02': 'Sensei Fabio', ...} a partir de config/avaliadores.json."""
+    p = _RAIZ / "config" / "avaliadores.json"
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+    return {str(a.get("id")): str(a.get("nome") or a.get("id") or "")
+            for a in doc.get("avaliadores", [])}
+
+
+def _carregar_ordem_faixas() -> list[str]:
+    """Ordem de progressão de faixas a partir de config/faixas.json.
+
+    Usa a estrutura JÁ existente: 'suportadas' + 'placeholder' (nessa
+    ordem). marrom/preta podem ficar habilitadas na ordem sem matriz
+    própria por enquanto — entram na coluna 'Nova Faixa (se aprovado)'
+    quando um aluno da faixa anterior for aprovado. Fallback: sequência
+    padrão.
+    """
+    padrao = ["branca", "amarela", "laranja", "verde", "azul", "roxa",
+              "marrom", "preta"]
+    try:
+        doc = json.loads((_RAIZ / "config" / "faixas.json")
+                         .read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — config ausente/inválida não quebra
+        return padrao
+    suportadas = [str(f).strip().lower() for f in doc.get("suportadas", [])]
+    placeholder = [str(f).strip().lower() for f in doc.get("placeholder", [])]
+    ordem = suportadas + placeholder
+    return ordem or padrao
+
+
+def _nova_faixa(faixa_atual: str, status: str, ordem: list[str]) -> str:
+    """Próxima faixa se APROVADO; 'Mantém faixa' se Recuperação; '—' senão."""
+    if status in ("APROVADO", "APROVADO_PONTO_ATENCAO"):
+        atual = (faixa_atual or "").strip().lower()
+        try:
+            i = ordem.index(atual)
+        except ValueError:
+            return "—"
+        if i + 1 < len(ordem):
+            return ordem[i + 1].capitalize()
+        return "Faixa máxima"
+    if status == "RECUPERACAO":
+        return "Mantém faixa"
+    return "—"
+
+
+# --- Observações (classificação BOM! / A MELHORAR) --------------------------
+_OBS_POSITIVAS_TXT = tuple(t.lower() for t in OBS_POSITIVAS.values())
+_OBS_MELHORAR_TXT = tuple(t.lower() for t in OBS_MELHORAR.values())
+_PREFIXOS_FORTES = ("boa", "bom", "otim", "ótimo", "excelente", "bem", "grande")
+_PREFIXOS_MELHORAR = ("dificuldade", "erros", "falta", "melhorar", "atenção",
+                      "nervosismo", "perda", "cabeça", "mais foco", "mais carga")
+
+
+def _classificar_obs(parte: str) -> str:
+    """Retorna 'fortes' | 'melhorar' | 'outras' (chaves de _separar_obs)."""
+    t = parte.lower().strip()
+    if any(p in t for p in _OBS_POSITIVAS_TXT):
+        return "fortes"
+    if any(m in t for m in _OBS_MELHORAR_TXT):
+        return "melhorar"
+    if t.startswith(_PREFIXOS_FORTES):
+        return "fortes"
+    if t.startswith(_PREFIXOS_MELHORAR):
+        return "melhorar"
+    return "outras"
+
+
+def _separar_obs(texto: str) -> dict[str, list[str]]:
+    """Divide o texto montado em fortes / melhorar / outras."""
+    grupos = {"fortes": [], "melhorar": [], "outras": []}
+    for parte in texto.replace(".", ";").replace("\n", ";").split(";"):
+        parte = parte.strip()
+        if not parte:
+            continue
+        grupos[_classificar_obs(parte)].append(parte)
+    return grupos
+
+
+def _texto_recomendacao(recomendacoes: dict, quesito: str, chave: str) -> str:
+    """Recomendação por (quesito, critério) — lê 'por_quesito' com fallback.
+
+    Se a estrutura 'por_quesito' não tiver a entrada, usa a chave antiga na
+    raiz (texto único) e remove um eventual rótulo 'Recomendação:' embutido.
+    """
+    por_q = (recomendacoes or {}).get("por_quesito", {})
+    v = por_q.get(quesito, {}).get(chave, None)
+    if v is None:
+        texto = str((recomendacoes or {}).get(chave, "") or "")
+        if "Recomendação:" in texto:
+            texto = texto.split("Recomendação:", 1)[0].strip()
+        return texto
     if isinstance(v, str):
         return v
     if isinstance(v, dict):
-        return v.get("texto") or v.get("recomendacao") or ""
+        return (v.get("recomendacao") or v.get("motivo")
+                or v.get("texto") or "")
     return ""
 
 
-# ═══════════════════════════════ SENSEI (dojo) ═══════════════════════════════
+def _texto_recomendacao_detalhe(recomendacoes: dict, quesito: str,
+                                chave: str) -> tuple[str, str]:
+    """(Recomendação, Planejamento Sugerido) por (quesito, critério).
 
-def _tabela_marcacoes(r: dict, avaliadores_map: dict | None) -> str:
-    """Tabela de marcações: linhas = critérios, colunas = avaliadores.
-
-    Usa a FREQUÊNCIA REAL (escala 1 a 5) que cada avaliador marcou.
+    Estrutura nova: dict com 'recomendacao' e 'planejamento'. Fallback para
+    a chave antiga na raiz, separando o texto antes/depois de 'Recomendação:'.
     """
+    por_q = (recomendacoes or {}).get("por_quesito", {})
+    v = por_q.get(quesito, {}).get(chave, None)
+    if isinstance(v, dict):
+        rec = (v.get("recomendacao") or v.get("motivo") or v.get("texto") or "")
+        plano = v.get("planejamento") or v.get("sugerido") or ""
+        return str(rec), str(plano)
+    if isinstance(v, str):
+        return str(v), ""
+    # Fallback: chave antiga na raiz (texto único com rótulo embutido)
+    texto = str((recomendacoes or {}).get(chave, "") or "")
+    if "Recomendação:" in texto:
+        antes, depois = texto.split("Recomendação:", 1)
+        return antes.strip(), depois.strip(" ()")
+    return texto, ""
+
+
+# ═══════════════════════════════ SENSEI (dojo) ═══════════════════════════════
+def _tabela_marcacoes(r: dict, avaliadores_map: dict | None) -> str:
+    """Tabela de marcações: linhas = critérios, colunas = avaliadores (nome)."""
+    avaliadores_map = avaliadores_map or _carregar_avaliadores_map()
     por_av = r.get("frequencias_por_avaliador") or []
     av_ids = r.get("avaliadores_ids") or [f"A{i + 1}" for i in range(len(por_av))]
-    labels = []
-    for aid in av_ids:
-        nome = (avaliadores_map or {}).get(str(aid), "") or aid
-        labels.append(nome)
-    if not labels:
-        labels = ["Avaliador 1"]
-
+    labels = [avaliadores_map.get(str(aid), "") or str(aid) or f"A{i + 1}"
+              for i, aid in enumerate(av_ids)] or ["Avaliador 1"]
     quesitos = r.get("quesitos") or {}
     blocos = []
     for q, qnome in NOME_QUESITO.items():
@@ -106,17 +223,68 @@ def _tabela_marcacoes(r: dict, avaliadores_map: dict | None) -> str:
 
 
 def _obs_com_autoria(r: dict, avaliadores_map: dict | None) -> str:
-    """Observações dos avaliadores com o nome de quem marcou."""
+    """Observações dos avaliadores com nome + separação BOM! / A MELHORAR."""
+    avaliadores_map = avaliadores_map or _carregar_avaliadores_map()
     obs = r.get("observacoes_por_avaliador") or []
     linhas = []
     for o in obs:
         av = o.get("avaliador") or "Avaliador"
-        nome_av = (avaliadores_map or {}).get(str(av), "") or av
-        texto = (o.get("observacao") or "").strip() or "Sem observação"
+        nome_av = avaliadores_map.get(str(av), "") or str(av)
+        texto = (o.get("observacao") or "").strip()
+        if not texto:
+            continue
+        grupos = _separar_obs(texto)
+        partes_html = []
+        if grupos["fortes"]:
+            partes_html.append(
+                f'<span class="obs-forte"><b>Pontos fortes (BOM!):</b> '
+                f'{_esc(" · ".join(grupos["fortes"]))}</span>')
+        if grupos["melhorar"]:
+            partes_html.append(
+                f'<span class="obs-melhorar"><b>A melhorar:</b> '
+                f'{_esc(" · ".join(grupos["melhorar"]))}</span>')
+        if grupos["outras"]:
+            partes_html.append(
+                f'<span class="obs-outras"><b>Outras:</b> '
+                f'{_esc(" · ".join(grupos["outras"]))}</span>')
+        if not partes_html:
+            partes_html.append(_esc(texto))
         linhas.append(
-            f'<li><span class="avaliador">{_esc(nome_av)}</span>: {_esc(texto)}</li>'
+            f'<li><span class="avaliador">{_esc(nome_av)}</span> '
+            f'<div class="obs-grupos">{"".join(partes_html)}</div></li>'
         )
     return "".join(linhas) or "<li>Sem observações.</li>"
+
+
+def _bloco_notas_quesito_sensei(resultados: list[dict], nomes: dict | None) -> str:
+    """Ranking de Notas por Quesito + coluna 'Nova Faixa (se aprovado)' (ponto 4)."""
+    ordem = _carregar_ordem_faixas()
+    thead = "".join(f"<th>{_esc(qn)}</th>" for qn in NOME_QUESITO.values())
+    linhas = []
+    for r in sorted(resultados, key=lambda x: x.get("nota_final", 0.0), reverse=True):
+        aluno_id = str(r.get("aluno_id", "?"))
+        nome = (nomes or {}).get(aluno_id, "") or aluno_id
+        tds = "".join(
+            f'<td>{(r.get("quesitos", {}).get(q, {}) or {}).get("nota", 0.0):.1f}</td>'
+            for q in NOME_QUESITO
+        )
+        status = r.get("status", "?")
+        fg, _ = _status_cor(status)
+        nova = _nova_faixa(r.get("faixa", ""), status, ordem)
+        linhas.append(
+            f'<tr><td class="aluno">{_esc(nome)}</td>{tds}'
+            f'<td><b>{r.get("nota_final", 0.0):.1f}</b></td>'
+            f'<td><span class="status-mini" style="background:{fg};color:#fff">{_esc(status)}</span></td>'
+            f'<td class="novafaixa">{_esc(nova)}</td></tr>'
+        )
+    return f"""<section class="bloco">
+      <h2>Notas por Quesito</h2>
+      <p class="sub-bloco">Ranking dos alunos — coluna "Nova Faixa" indica a faixa da próxima graduação caso aprovado.</p>
+      <table class="tab">
+        <thead><tr><th>Aluno</th>{thead}<th>Nota final</th><th>Status</th><th>Nova Faixa (se aprovado)</th></tr></thead>
+        <tbody>{''.join(linhas)}</tbody>
+      </table>
+    </section>"""
 
 
 def _card_aluno_sensei(r: dict, nomes: dict | None, avaliadores_map: dict | None) -> str:
@@ -126,8 +294,6 @@ def _card_aluno_sensei(r: dict, nomes: dict | None, avaliadores_map: dict | None
     nota = r.get("nota_final", 0.0)
     status = r.get("status", "?")
     fg, bg = _status_cor(status)
-
-    # Notas por quesito (mini-barras)
     notas_q = []
     for q, qnome in NOME_QUESITO.items():
         nq = (r.get("quesitos", {}).get(q, {}) or {}).get("nota", 0.0)
@@ -138,10 +304,8 @@ def _card_aluno_sensei(r: dict, nomes: dict | None, avaliadores_map: dict | None
             f'style="width:{min(100, nq / 25 * 100):.0f}%;background:{corq}"></div></div>'
             f'<span class="mini-q-val">{nq:.1f}</span></div>'
         )
-
     marcacoes = _tabela_marcacoes(r, avaliadores_map)
     obs = _obs_com_autoria(r, avaliadores_map)
-
     return f"""
     <article class="card aluno" style="border-left:6px solid {fg}">
       <header class="aluno-head">
@@ -177,16 +341,17 @@ def gerar_html_exame(
     sensei_responsavel: str = "",
     avaliadores_map: dict | None = None,
 ) -> str:
-    """HTML do relatório do Sensei (dojo) — enxuto, sem recomendações."""
+    """HTML do relatório do Sensei (dojo) — com ranking + nova faixa (ponto 4)."""
     cards = "".join(_card_aluno_sensei(r, nomes, avaliadores_map) for r in resultados)
-
+    ranking = _bloco_notas_quesito_sensei(resultados, nomes)
     data = datetime.now().strftime("%d/%m/%Y %H:%M")
     n_aprov = sum(1 for r in resultados
                   if r.get("status") in ("APROVADO", "APROVADO_PONTO_ATENCAO"))
+    n_aten = sum(1 for r in resultados
+                 if r.get("status") == "APROVADO_PONTO_ATENCAO")
     media = (sum(r.get("nota_final", 0.0) for r in resultados) / len(resultados)
              if resultados else 0.0)
     n_faixas = len({_esc(r.get("faixa", "")) for r in resultados})
-
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -209,6 +374,9 @@ def gerar_html_exame(
              box-shadow:0 1px 3px rgba(0,0,0,.08); }}
   .metric-t {{ display:block; font-size:12px; color:#666; text-transform:uppercase; letter-spacing:.5px; }}
   .metric-v {{ display:block; font-size:24px; font-weight:700; margin-top:4px; }}
+  .bloco {{ background:#fff; border-radius:12px; padding:20px; margin-top:18px; box-shadow:0 1px 3px rgba(0,0,0,.08); }}
+  .bloco h2 {{ margin:0 0 12px; font-size:18px; color:#1a1a1a; }}
+  .sub-bloco {{ color:#666; font-size:13px; margin:-6px 0 12px; }}
   .alunos {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }}
   .card {{ background:#fff; border-radius:12px; padding:18px; box-shadow:0 1px 3px rgba(0,0,0,.08); }}
   .aluno-head {{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }}
@@ -229,15 +397,22 @@ def gerar_html_exame(
   .obs li {{ padding:5px 0; border-bottom:1px solid #f0f0f0; font-size:13px; }}
   .obs li:last-child {{ border-bottom:none; }}
   .obs .avaliador {{ font-weight:700; color:#1f4e79; }}
+  .obs-grupos {{ margin-top:2px; display:flex; flex-direction:column; gap:2px; }}
+  .obs-forte {{ color:#1a7f37; }}
+  .obs-melhorar {{ color:#b7791f; }}
+  .obs-outras {{ color:#666; }}
   .marc-bloco {{ margin:8px 0; }}
   .marc-q-nome {{ display:block; font-weight:700; color:#555; font-size:12px; text-transform:uppercase; margin-bottom:4px; }}
   table.tab {{ width:100%; border-collapse:collapse; font-size:12px; }}
   table.tab th, table.tab td {{ border:1px solid #e0e0e0; padding:4px 8px; text-align:center; }}
   table.tab th {{ background:#f4f5f7; color:#444; font-weight:600; }}
   table.tab td.crit {{ text-align:left; color:#333; }}
+  table.tab td.aluno {{ text-align:left; font-weight:600; }}
+  .status-mini {{ display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700; }}
+  .novafaixa {{ font-weight:700; color:#1f4e79; }}
   .vazio {{ color:#999; font-size:12px; }}
   @media print {{ body {{ background:#fff; }} .pagina {{ max-width:100%; padding:0; }}
-                 .card {{ box-shadow:none; break-inside:avoid; }} .capa {{ border-radius:0; }} }}
+                 .card, .bloco {{ box-shadow:none; break-inside:avoid; }} .capa {{ border-radius:0; }} }}
   @media (max-width:700px) {{ .alunos, .resumo {{ grid-template-columns:1fr; }} }}
 </style>
 </head>
@@ -254,14 +429,13 @@ def gerar_html_exame(
         <div><b>Gerado em:</b> {_esc(data)}</div>
       </div>
     </header>
-
     <div class="resumo">
       <div class="metric"><span class="metric-t">Alunos</span><span class="metric-v">{len(resultados)}</span></div>
       <div class="metric"><span class="metric-t">Aprovados</span><span class="metric-v" style="color:#1a7f37">{n_aprov}</span></div>
+      <div class="metric"><span class="metric-t">C/ atenção</span><span class="metric-v" style="color:#b7791f">{n_aten}</span></div>
       <div class="metric"><span class="metric-t">Média</span><span class="metric-v" style="color:#1f4e79">{media:.1f}</span></div>
-      <div class="metric"><span class="metric-t">Faixas</span><span class="metric-v" style="color:#b45309">{n_faixas}</span></div>
     </div>
-
+    {ranking}
     <div class="alunos">{cards}</div>
   </div>
 </body>
@@ -291,13 +465,8 @@ def salvar_html_exame(
 
 
 # ═══════════════════════════════ MASTER (consolidado) ═══════════════════════════════
-
 def _agregar_criterios(resultados: list[dict]) -> list[dict]:
-    """Agrega critérios marcados com frequência REAL: nº de alunos, % e intensidade.
-
-    frequencias_reais é gravada pelo pipeline (modo_presenca=False) — soma das
-    marcações reais (escala 1 a 5) por critério em cada aluno.
-    """
+    """Agrega critérios marcados: nº de alunos, % e intensidade média."""
     n = len(resultados)
     nome_map: dict[tuple, str] = {}
     for r in resultados:
@@ -329,12 +498,12 @@ def _agregar_criterios(resultados: list[dict]) -> list[dict]:
 def _agregar_recomendacoes(resultados: list[dict], recomendacoes: dict) -> list[dict]:
     itens = _agregar_criterios(resultados)
     for it in itens:
-        it["texto"] = _texto_recomendacao(recomendacoes, it["chave"])
+        it["texto"] = _texto_recomendacao(recomendacoes, it["quesito"], it["chave"])
     return itens
 
 
 def _bloco_marcacoes_quesito(resultados: list[dict]) -> str:
-    """% de marcações dos critérios por quesito + intensidade média (1 a 5)."""
+    """% de marcações dos critérios por quesito — SEM intensidade (ponto 7)."""
     itens = _agregar_criterios(resultados)
     if not itens:
         return ('<section class="bloco"><h2>Critérios Marcados por Quesito</h2>'
@@ -347,24 +516,25 @@ def _bloco_marcacoes_quesito(resultados: list[dict]) -> str:
             continue
         linhas = "".join(
             f'<tr><td>{_esc(it["nome"])}</td>'
-            f'<td>{it["count"]} de {n} alunos ({it["pct"]:.0f}%)</td>'
-            f'<td>{it["intens"]:.1f}</td></tr>'
+            f'<td>{it["count"]} de {n} alunos ({it["pct"]:.0f}%)</td></tr>'
             for it in sub
         )
         blocos.append(
             f'<div class="marc-quesito"><h4>{_esc(qnome)}</h4>'
             f'<table class="tab"><thead><tr>'
-            f'<th>Critério</th><th>Marcado em</th><th>Intensidade média (1–5)</th>'
+            f'<th>Critério</th><th>Marcado em</th>'
             f'</tr></thead><tbody>{linhas}</tbody></table></div>'
         )
     return f"""<section class="bloco">
       <h2>Critérios Marcados por Quesito</h2>
-      <p class="sub-bloco">% de alunos cujo avaliador marcou o critério e intensidade média da marcação (1 = raro, 5 = ocorre sempre).</p>
+      <p class="sub-bloco">% de alunos cujo avaliador marcou cada critério.</p>
       {''.join(blocos)}
     </section>"""
 
 
 def _bloco_recomendacoes_master(resultados: list[dict], recomendacoes: dict) -> str:
+    """Recomendações com rótulos únicos 'Recomendação:' e 'Planejamento Sugerido:'
+    por (quesito, critério) — ponto 8, sem repetição entre quesitos."""
     itens = _agregar_recomendacoes(resultados, recomendacoes)
     if not itens:
         return ('<section class="bloco"><h2>Recomendações Sugeridas</h2>'
@@ -373,27 +543,92 @@ def _bloco_recomendacoes_master(resultados: list[dict], recomendacoes: dict) -> 
     linhas = []
     for it in itens:
         cor = COR_QUESITO.get(it["quesito"], "#333")
+        rec, plano = _texto_recomendacao_detalhe(recomendacoes,
+                                                 it["quesito"], it["chave"])
+        partes = []
+        if rec:
+            partes.append(
+                f'<div class="rec-motivo"><b>Recomendação:</b> {_esc(rec)}</div>')
+        if plano:
+            partes.append(
+                f'<div class="rec-plano"><b>Planejamento Sugerido:</b> {_esc(plano)}</div>')
+        if not partes:
+            partes.append(
+                f'<div class="rec-motivo"><b>Recomendação:</b> {_esc(it["texto"]) or "—"}</div>')
         linhas.append(
             f'<li class="rec-item">'
             f'<div class="rec-head"><span class="dot" style="background:{cor}"></span>'
             f'<b>{_esc(NOME_QUESITO[it["quesito"]])} — {_esc(it["nome"])}</b>'
-            f'<span class="rec-meta">marcado em {it["count"]} de {n} alunos '
-            f'({it["pct"]:.0f}%) · intensidade média {it["intens"]:.1f} (1 a 5)</span></div>'
-            f'<div class="rec-motivo"><b>Motivo:</b> {_esc(it["texto"]) or "—"}</div>'
+            f'<span class="rec-meta">marcado em {it["count"]} de {n} alunos ({it["pct"]:.0f}%)</span></div>'
+            f'{"".join(partes)}'
             f'</li>'
         )
     return f"""<section class="bloco">
       <h2>Recomendações Sugeridas</h2>
-      <p class="sub-bloco">Critérios com problemas identificados no exame: em quantos alunos foi marcado, com que intensidade e o motivo da recomendação.</p>
+      <p class="sub-bloco">Critérios de maior incidência no exame, com recomendação e planejamento para os treinos.</p>
       <ul class="recs">{''.join(linhas)}</ul>
     </section>"""
 
 
+def _bloco_analise_desempenho(resultados: list[dict], nomes: dict | None) -> str:
+    """Análise de desempenho geral (ponto 9): média por quesito, foco, atenção, destaque."""
+    presentes = [r for r in resultados if r.get("status") != "AUSENTE"]
+    if not presentes:
+        return ""
+    n = len(presentes)
+    medias: dict[str, float] = {}
+    for q in NOME_QUESITO:
+        vals = [(r.get("quesitos", {}).get(q, {}) or {}).get("nota", 0.0)
+                for r in presentes]
+        medias[q] = sum(vals) / n
+    ranking = sorted(medias.items(), key=lambda x: x[1])
+    bars = ""
+    for q, media in ranking:
+        cor = COR_QUESITO.get(q, "#333")
+        pct = min(100.0, media / 25 * 100)
+        bars += (
+            f'<div class="mini-q"><span class="mini-q-nome">{_esc(NOME_QUESITO[q])}</span>'
+            f'<div class="mini-q-bar"><div class="mini-q-fill" style="width:{pct:.0f}%;background:{cor}"></div></div>'
+            f'<span class="mini-q-val">{media:.1f}</span></div>'
+        )
+    foco = NOME_QUESITO[ranking[0][0]] if ranking else "—"
+    risco = sorted(
+        [r for r in presentes
+         if r.get("nota_final", 0.0) <= 75.0
+         or r.get("status") == "APROVADO_PONTO_ATENCAO"],
+        key=lambda r: r.get("nota_final", 0.0),
+    )
+    risco_linhas = "".join(
+        f'<li>{_esc((nomes or {}).get(str(r.get("aluno_id")), r.get("aluno_id", "?")))}'
+        f' — nota {r.get("nota_final", 0.0):.1f} ({_esc(r.get("status", "?"))})</li>'
+        for r in risco
+    ) or "<li>Nenhum aluno em zona de atenção.</li>"
+    topo = max(presentes, key=lambda r: r.get("nota_final", 0.0))
+    nome_topo = (nomes or {}).get(str(topo.get("aluno_id")), topo.get("aluno_id", "?"))
+    return f"""<section class="bloco">
+      <h2>Análise de Desempenho</h2>
+      <div class="analise-grid">
+        <div>
+          <h4>Média da turma por quesito</h4>
+          {bars}
+        </div>
+        <div>
+          <h4>Foco do treino</h4>
+          <p>Quesito com menor média: <b>{_esc(foco)}</b> ({medias[ranking[0][0]]:.1f} pts).</p>
+          <h4>Alunos em zona de atenção (nota ≤ 75,0)</h4>
+          <ul>{risco_linhas}</ul>
+          <h4>Destaque do exame</h4>
+          <p><b>{_esc(nome_topo)}</b> — nota {topo.get("nota_final", 0.0):.1f}.</p>
+        </div>
+      </div>
+    </section>"""
+
+
 def _bloco_notas_quesito(resultados: list[dict], nomes: dict | None) -> str:
-    """Tabela de notas por quesito por aluno (ponto 9)."""
+    """Tabela de notas por quesito por aluno (master) — ranking descrescente."""
     thead = "".join(f"<th>{_esc(qn)}</th>" for qn in NOME_QUESITO.values())
     linhas = []
-    for r in resultados:
+    for r in sorted(resultados, key=lambda x: x.get("nota_final", 0.0), reverse=True):
         aluno_id = str(r.get("aluno_id", "?"))
         nome = (nomes or {}).get(aluno_id, "") or aluno_id
         tds = "".join(
@@ -418,7 +653,8 @@ def _bloco_notas_quesito(resultados: list[dict], nomes: dict | None) -> str:
 
 def _bloco_observacoes_master(resultados: list[dict], nomes: dict | None,
                               avaliadores_map: dict | None) -> str:
-    """Observações dos avaliadores por aluno (ponto 8)."""
+    """Observações dos avaliadores por aluno, com nome e separação (pontos 2–3)."""
+    avaliadores_map = avaliadores_map or _carregar_avaliadores_map()
     blocos = []
     for r in resultados:
         obs = [o for o in (r.get("observacoes_por_avaliador") or [])
@@ -427,12 +663,26 @@ def _bloco_observacoes_master(resultados: list[dict], nomes: dict | None,
             continue
         aluno_id = str(r.get("aluno_id", "?"))
         nome = (nomes or {}).get(aluno_id, "") or aluno_id
-        linhas = "".join(
-            f'<li><span class="avaliador">{_esc(((avaliadores_map or {}).get(str(o.get("avaliador") or ""), "")) or o.get("avaliador") or "Avaliador")}</span>: {_esc(o["observacao"])}</li>'
-            for o in obs
-        )
+        linhas = []
+        for o in obs:
+            av = o.get("avaliador") or "Avaliador"
+            nome_av = avaliadores_map.get(str(av), "") or str(av)
+            grupos = _separar_obs(o["observacao"])
+            partes = []
+            if grupos["fortes"]:
+                partes.append(f'<span class="obs-forte"><b>Pontos fortes (BOM!):</b> {_esc(" · ".join(grupos["fortes"]))}</span>')
+            if grupos["melhorar"]:
+                partes.append(f'<span class="obs-melhorar"><b>A melhorar:</b> {_esc(" · ".join(grupos["melhorar"]))}</span>')
+            if grupos["outras"]:
+                partes.append(f'<span class="obs-outras"><b>Outras:</b> {_esc(" · ".join(grupos["outras"]))}</span>')
+            if not partes:
+                partes.append(_esc(o["observacao"]))
+            linhas.append(
+                f'<li><span class="avaliador">{_esc(nome_av)}</span> '
+                f'<div class="obs-grupos">{"".join(partes)}</div></li>'
+            )
         blocos.append(
-            f'<div class="obs-aluno"><h4>{_esc(nome)}</h4><ul class="obs">{linhas}</ul></div>'
+            f'<div class="obs-aluno"><h4>{_esc(nome)}</h4><ul class="obs">{"".join(linhas)}</ul></div>'
         )
     if not blocos:
         return ""
@@ -453,28 +703,23 @@ def gerar_html_master(resultados_dojos: list[dict], regras: dict,
         return (f"<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'>"
                 f"<title>{_esc(titulo)}</title></head><body>"
                 f"<h1>{_esc(titulo)}</h1><p>Sem dados de dojos.</p></body></html>")
-
-    # Alunos vêm do INPUT (o dados do master não carrega a lista)
     todos_alunos = []
     for d in resultados_dojos:
         todos_alunos.extend(d.get("alunos", []))
-
     linhas_dojo = "".join(
         f'<li><b>{_esc(d["dojo_id"])}</b> — média {d["media"]} · aprovação '
         f'{d["taxa_aprovacao"]:.0f}% (sendo {d["taxa_atencao"]:.0f}% c/ atenção) · '
         f'{d["presentes"]}/{d["total_alunos"]} presentes</li>'
         for d in dados["dojos"]
     ) or "<li>—</li>"
-
     notas_html = _bloco_notas_quesito(todos_alunos, nomes)
+    analise_html = _bloco_analise_desempenho(todos_alunos, nomes)
     marcacoes_html = _bloco_marcacoes_quesito(todos_alunos)
     recomendacoes_html = _bloco_recomendacoes_master(todos_alunos, recomendacoes)
     observacoes_html = _bloco_observacoes_master(todos_alunos, nomes, avaliadores_map)
-
     total_presentes = dados.get("n_presentes_total", 0)
     media_geral = (sum(r.get("nota_final", 0.0) for r in todos_alunos) / len(todos_alunos)
                    if todos_alunos else 0.0)
-
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -505,12 +750,22 @@ def gerar_html_master(resultados_dojos: list[dict], regras: dict,
   .rec-item {{ padding:10px 0; }}
   .rec-head {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }}
   .rec-meta {{ color:#888; font-size:12px; margin-left:auto; }}
-  .rec-motivo {{ color:#555; font-size:13px; margin-top:4px; padding-left:18px; }}
+  .rec-motivo, .rec-plano {{ color:#555; font-size:13px; margin-top:4px; padding-left:18px; }}
   .marc-quesito {{ margin:10px 0; }}
+  .analise-grid {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }}
+  .mini-q {{ display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px; }}
+  .mini-q-nome {{ width:70px; color:#555; }}
+  .mini-q-bar {{ flex:1; height:8px; background:#eef0f3; border-radius:4px; overflow:hidden; }}
+  .mini-q-fill {{ height:100%; border-radius:4px; }}
+  .mini-q-val {{ width:34px; text-align:right; font-weight:600; }}
   .obs-aluno {{ margin:10px 0; }}
   .obs-aluno h4 {{ margin:0 0 4px; }}
   .obs .avaliador {{ font-weight:700; color:#1f4e79; }}
   .obs li {{ padding:5px 0; font-size:13px; }}
+  .obs-grupos {{ margin-top:2px; display:flex; flex-direction:column; gap:2px; }}
+  .obs-forte {{ color:#1a7f37; }}
+  .obs-melhorar {{ color:#b7791f; }}
+  .obs-outras {{ color:#666; }}
   table.tab {{ width:100%; border-collapse:collapse; font-size:13px; }}
   table.tab th, table.tab td {{ border:1px solid #e0e0e0; padding:6px 10px; text-align:center; }}
   table.tab th {{ background:#f4f5f7; color:#444; font-weight:600; }}
@@ -518,6 +773,7 @@ def gerar_html_master(resultados_dojos: list[dict], regras: dict,
   .status-mini {{ display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700; }}
   @media print {{ body {{ background:#fff; }} .pagina {{ max-width:100%; padding:0; }}
                  .bloco {{ box-shadow:none; break-inside:avoid; }} }}
+  @media (max-width:700px) {{ .alunos, .resumo, .analise-grid {{ grid-template-columns:1fr; }} }}
 </style>
 </head>
 <body>
@@ -531,19 +787,17 @@ def gerar_html_master(resultados_dojos: list[dict], regras: dict,
         <div><b>Alunos presentes:</b> {total_presentes}</div>
       </div>
     </header>
-
     <div class="resumo">
       <div class="metric"><span class="metric-t">Dojos</span><span class="metric-v">{len(dados.get('dojos', []))}</span></div>
       <div class="metric"><span class="metric-t">Alunos presentes</span><span class="metric-v">{total_presentes}</span></div>
       <div class="metric"><span class="metric-t">Média geral</span><span class="metric-v" style="color:#1f4e79">{media_geral:.1f}</span></div>
     </div>
-
     <section class="bloco">
       <h2>Desempenho por Dojo</h2>
       <ul>{linhas_dojo}</ul>
     </section>
-
     {notas_html}
+    {analise_html}
     {marcacoes_html}
     {recomendacoes_html}
     {observacoes_html}

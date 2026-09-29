@@ -13,7 +13,134 @@
   "elogio_transversal": "Base exemplar: nenhuma marcação de {criterio} em {quesitos}.",
   "elogio_quesito_perfeito": "{quesito} impecável: nenhuma falha registrada pelos avaliadores.",
   "destaque_geral": "Destaque do exame: excelência técnica consistente em todas as categorias.",
+  "por_quesito": {
+    "kihon": {
+      "base_incorreta": {
+        "recomendacao": "Reforçar largura, profundidade e distribuição de peso das bases no Kihon.",
+        "planejamento": "Bateria de bases estáticas e transições em sequência, com correção individual por fila."
+      },
+      "execucao_tecnica_incorreta": {
+        "recomendacao": "Revisar trajetória, rotação de punho e quadril nos golpes de Kihon.",
+        "planejamento": "Repetição cadenciada de cada técnica, com demonstração e correção por fila."
+      },
+      "movimento_sem_carga": {
+        "recomendacao": "Trabalhar transferência de peso e contração final (Kime) nos golpes de Kihon.",
+        "planejamento": "Exercícios de impacto em alvo e ênfase na finalização de cada técnica."
+      },
+      "falta_foco": {
+        "recomendacao": "Treinar direcionamento do olhar (Metsuke) e concentração no alvo durante o Kihon.",
+        "planejamento": "Séries de técnicas com ponto focal fixo e correção do olhar a cada repetição."
+      },
+      "perda_equilibrio": {
+        "recomendacao": "Melhorar estabilidade e centro de gravidade nas bases e transições do Kihon.",
+        "planejamento": "Exercícios de equilíbrio estático e dinâmico aplicados diretamente às bases, como calistenia."
+      },
+      "ausencia_kiai": {
+        "recomendacao": "Praticar expiração forte e projeção vocal sincronizada com cada técnica do Kihon.",
+        "planejamento": "Treino de respiração e Kiai em conjunto, explicando o motivo e a importância de cada projeção."
+      }
+    },
+    "kata": {
+      "embusen_incorreto": {
+        "recomendacao": "Reestudar o traçado (embusen) do Kata e os pontos de retorno.",
+        "planejamento": "Recortar o Kata em pequenas partes e repetir cada trecho até dominar o desenho completo."
+      },
+      "base_incorreta": {
+        "recomendacao": "Reforçar a manutenção das bases dentro da sequência do Kata.",
+        "planejamento": "Executar o Kata em câmera lenta, focando na estabilidade de cada base."
+      },
+      "falta_ritmo": {
+        "recomendacao": "Trabalhar cadência, pausas e fluidez respeitando o embusen do Kata.",
+        "planejamento": "Recortar o Kata em pequenas partes e treinar no ritmo ideal até completá-lo inteiro."
+      },
+      "ausencia_kiai": {
+        "recomendacao": "Sincronizar o Kiai nos pontos corretos da sequência do Kata.",
+        "planejamento": "Identificar os momentos de Kiai do Kata e praticar a projeção vocal nesses pontos."
+      },
+      "execucao_tecnica_incorreta": {
+        "recomendacao": "Revisar a execução das técnicas dentro da sequência do Kata.",
+        "planejamento": "Demonstrar cada movimento do Kata de forma cadenciada e corrigir trecho por trecho."
+      },
+      "movimento_sem_carga": {
+        "recomendacao": "Aplicar carga e Kime nas técnicas executadas no Kata.",
+        "planejamento": "Repetir os golpes do Kata com ênfase na finalização e no peso de cada movimento."
+      },
+      "falta_foco": {
+        "recomendacao": "Manter o foco e o olhar durante toda a execução do Kata.",
+        "planejamento": "Praticar o Kata inteiro com atenção ao Metsuke em cada mudança de direção."
+      },
+      "perda_equilibrio": {
+        "recomendacao": "Estabilizar o corpo nas trocas de direção e nos giros do Kata.",
+        "planejamento": "Treinar as transições e rotações do Kata isoladamente até ganhar firmeza."
+      }
+    },
+    "bunkai": {
+      "base_incorreta": {
+        "recomendacao": "Reforçar as bases na aplicação técnica com parceiro no Bunkai.",
+        "planejamento": "Treinos de Bunkai em dupla, corrigindo a base a cada movimento aplicado."
+      },
+      "ausencia_kiai": {
+        "recomendacao": "Projetar o Kiai nos golpes aplicados do Bunkai.",
+        "planejamento": "Praticar a aplicação com parceiro sincronizando o Kiai ao impacto."
+      },
+      "execucao_tecnica_incorreta": {
+        "recomendacao": "Revisar a trajetória e o controle dos golpes na aplicação do Bunkai.",
+        "planejamento": "Repetir os movimentos do Bunkai com contato técnico controlado e correção."
+      },
+      "movimento_sem_carga": {
+        "recomendacao": "Trabalhar transferência de peso e Kime na aplicação do Bunkai.",
+        "planejamento": "Treinos práticos de Bunkai com contato técnico controlado e finalização."
+      },
+      "falta_foco": {
+        "recomendacao": "Manter o olhar e a intenção no alvo durante a aplicação do Bunkai.",
+        "planejamento": "Exercícios de Bunkai com foco no Metsuke e na leitura do parceiro."
+      },
+      "perda_equilibrio": {
+        "recomendacao": "Manter o equilíbrio durante a aplicação e a defesa no Bunkai.",
+        "planejamento": "Treinar as trocas de base e o deslocamento na aplicação com parceiro."
+      },
+      "distancia_inadequada": {
+        "recomendacao": "Treinar o controle de distância (Ma-ai) na aplicação do Bunkai.",
+        "planejamento": "Exercícios frente a frente com transições de base e contato controlado."
+      },
+      "falta_controle": {
+        "recomendacao": "Reforçar o controle de impacto e a segurança do parceiro no Bunkai.",
+        "planejamento": "Treinos de aplicação com ênfase no controle absoluto da potência do golpe."
+      }
+    },
+    "kumite": {
+      "movimento_sem_carga": {
+        "recomendacao": "Trabalhar transferência de peso e Kime nos golpes de Kumite.",
+        "planejamento": "Treinos de combate técnico com ênfase na finalização e no peso dos golpes."
+      },
+      "falta_foco": {
+        "recomendacao": "Treinar o olhar e a leitura do oponente durante o Kumite.",
+        "planejamento": "Exercícios de combate com foco no Metsuke e na antecipação do movimento."
+      },
+      "perda_equilibrio": {
+        "recomendacao": "Manter o equilíbrio nos deslocamentos e nas trocas de golpe do Kumite.",
+        "planejamento": "Treinos de movimentação e combate técnico focando na estabilidade."
+      },
+      "ausencia_kiai": {
+        "recomendacao": "Projetar o Kiai nos ataques do Kumite.",
+        "planejamento": "Praticar o Kiai em situação de combate, sincronizado ao ataque."
+      },
+      "distancia_inadequada": {
+        "recomendacao": "Treinar o controle de Ma-ai: distância de engajamento e recuo no Kumite.",
+        "planejamento": "Exercícios frente a frente com transições de bases e contato controlado."
+      },
+      "falta_combatividade": {
+        "recomendacao": "Estimular atitude ofensiva, entrada e contra-ataque sem passividade no Kumite.",
+        "planejamento": "Mais que exercícios práticos e técnicos, o Sensei deve usar a oratória para que os alunos ganhem confiança e percam o receio de realizar o combate."
+      },
+      "falta_controle": {
+        "recomendacao": "Reforçar o controle de impacto e a segurança do parceiro no Kumite — prioridade absoluta.",
+        "planejamento": "Técnica é o controle absoluto da potência do golpe; treinos frente a frente com frequência e oratória sobre preservar a integridade dos companheiros."
+      }
+    }
+  },
   "_notas": {
+    "por_quesito": "Estrutura nova (v2.1) usada pelo relatório HTML: texto distinto por (quesito, critério), com 'recomendacao' (motivo) e 'planejamento' (sugestão prática). As chaves na raiz (sem 'por_quesito') são mantidas para compatibilidade com core/relatorios.py (funções legadas/testes).",
     "falta_combatividade": "Presente na biblioteca oficial, porém sem código A1-A12 correspondente — mantido para compatibilidade (vigente na matriz de Kumite v2.0).",
     "criterios_extintos_removidos": "A9 (defesa_incompleta) e A12 (tensao_respiracao) removidos na Fase 4 — não vigentes em nenhuma matriz v2.0."
   }

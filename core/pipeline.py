@@ -1,4 +1,4 @@
-"""core/pipeline.py — Integração OMR → engine → relatórios (Karate-Ashi v2.0).
+"""core/pipeline.py — Integração OMR → engine → relatórios (Karate-Ashi v2.1).
 
 Orquestra: lê os JSONs gerados pelo ingest_folhas (OMR), agrega as folhas por
 aluno (múltiplos avaliadores), chama o motor (core.engine.processa_aluno) por
@@ -14,14 +14,27 @@ Semântica de frequências:
     usadas pelo relatório Master (intensidade média) e pela tabela de
     marcações do Sensei.
 
+Regra de atenção (v2.1, decisão do usuário):
+  - Mantém a regra atual de discrepância entre avaliadores (vindo do engine);
+  - Adiciona: nota final 70.0–74.9 → APROVADO_PONTO_ATENCAO (mesmo com 1
+    avaliador, onde não existe divergência para disparar a regra antiga).
+
 Presença: folha com presença AUSENTE → aluno AUSENTE, sem avaliar frequências.
 
 Nomes: relatórios usam o nome COMPLETO (data/cadastro/alunos.json). As FOLHAS
 usam abreviar_nome() (ex.: "Pedro J. Silva") por causa do espaço limitado.
+Avaliadores: id -> nome via data/cadastro/avaliadores.json ou
+config/avaliadores.json (S02 -> Sensei Fabio, etc.).
 
 Nomes de saída (um arquivo por exame — suporta vários exames no ano):
   output/relatorios/relatorio_sensei_{EXAME}_{DOJO}.html   (camada Sensei)
   output/relatorios/relatorio_master_{EXAME}.html          (master consolidado)
+
+Upload ao Drive (v2.1): após gerar, copia para
+  <GD>/documentos/KarateAshi_Exames/relatorios/{EXAME}/master/
+  <GD>/documentos/KarateAshi_Exames/relatorios/{EXAME}/senseis/{Sensei}/
+Cada sensei vê apenas a pasta do seu dojo; a pasta 'master' fica só com os
+mestres.
 """
 from __future__ import annotations
 
@@ -29,6 +42,7 @@ import argparse
 import csv
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -227,6 +241,19 @@ def _observacoes_por_avaliador(avaliadores: list[dict]) -> list[dict]:
     ]
 
 
+def _aplicar_regra_atencao(resultado: dict) -> dict:
+    """Regra (b) aprovada: nota final 70.0–74.9 → APROVADO_PONTO_ATENCAO.
+
+    Mantém intacta a regra atual de discrepância entre avaliadores (que
+    exige 3 avaliadores); esta é a rede de segurança que funciona mesmo
+    com 1 avaliador.
+    """
+    if (resultado.get("status") == "APROVADO"
+            and 70.0 <= resultado.get("nota_final", 0.0) < 75.0):
+        resultado["status"] = "APROVADO_PONTO_ATENCAO"
+    return resultado
+
+
 def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
     """Fluxo completo: lê os JSONs do ingest, agrega por aluno e processa.
 
@@ -259,6 +286,8 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
             continue
         lote = montar_lote_engine(aluno_id, faixa, avaliadores, matriz)
         resultado = processa_aluno(lote, cfg, faixa)
+        # Regra de atenção (b): 70.0–74.9 → APROVADO_PONTO_ATENCAO
+        resultado = _aplicar_regra_atencao(resultado)
         resultado["aluno_id"] = aluno_id
         resultado["origens"] = [av.get("origem") for av in avaliadores]
         # NOVO: observações automáticas derivadas das frequências do OMR
@@ -390,6 +419,8 @@ def _carregar_avaliadores(cadastro: Path, cfg: Path | None = None) -> dict[str, 
         if mapa:
             break
     return mapa
+
+
 def gerar_relatorios_html(resultados: list[dict], regras: dict,
                           recomendacoes: dict, exame_id: str, dojo_id: str,
                           rel_dir: Path, nomes: dict | None = None,
@@ -433,6 +464,57 @@ def gerar_relatorios_html(resultados: list[dict], regras: dict,
     return gerados
 
 
+# ═══ Upload automático ao Google Drive (pontos 10–11) ══════════════════════
+
+def _enviar_relatorios_para_drive(rel_dir: Path, exame_id: str, dojo_id: str,
+                                  sensei_responsavel: str) -> bool:
+    """Copia os HTMLs gerados para o Drive com pastas ESTÁVEIS por nível."""
+    drive = (Path("G:/") / "Meu Drive" / "documentos"
+             / "KarateAshi_Exames" / "relatorios")
+    # Verifica se o Drive está montado e se a pasta-pai (KarateAshi_Exames)
+    # existe — 'relatorios' é criado automaticamente na primeira execução.
+    if not Path("G:/").exists():
+        print(f"[AVISO] Google Drive não montado em G: — upload pulado.")
+        return False
+    if not drive.parent.exists():
+        print(f"[AVISO] Pasta '{drive.parent}' não encontrada no Drive — "
+              f"crie 'KarateAshi_Exames/relatorios' (ou rode com o Drive "
+              f"sincronizado). Upload pulado.")
+        return False
+    drive.mkdir(parents=True, exist_ok=True)
+
+    ex = _slug(exame_id)
+    dj = _slug(dojo_id, "sem_dojo")
+    sensei = _slug(sensei_responsavel or dojo_id, "sem_sensei")
+    ...  # restante igual (origem_sensei/origem_master/dest_sensei/dest_master)
+
+    origem_sensei = rel_dir / f"relatorio_sensei_{ex}_{dj}.html"
+    origem_master = rel_dir / f"relatorio_master_{ex}.html"
+
+    # Pastas de permissão ESTÁVEIS (crie e compartilhe UMA vez):
+    #   relatorios/master/  e  relatorios/senseis/{Sensei}/
+    dest_sensei = drive / "senseis" / sensei / ex
+    dest_master = drive / "master" / ex
+
+    ok = True
+    if origem_sensei.exists():
+        dest_sensei.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origem_sensei, dest_sensei / origem_sensei.name)
+        print(f"[DRIVE] sensei → {dest_sensei / origem_sensei.name}")
+    else:
+        print(f"[AVISO] {origem_sensei.name} não encontrado (upload sensei pulado).")
+        ok = False
+
+    if origem_master.exists():
+        dest_master.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origem_master, dest_master / origem_master.name)
+        print(f"[DRIVE] master → {dest_master / origem_master.name}")
+    else:
+        print(f"[AVISO] {origem_master.name} não encontrado (upload master pulado).")
+        ok = False
+
+    return ok
+
 def main(argv: list[str] | None = None) -> int:
     """CLI: python core/pipeline.py --config config --data data --output output [--pasta-omr ...]"""
     ap = argparse.ArgumentParser(
@@ -467,7 +549,7 @@ def main(argv: list[str] | None = None) -> int:
     # Nomes dos alunos + sensei responsável (config/dojos.json) + avaliadores
     nomes = _carregar_nomes(cadastro)
     senseis = _carregar_senseis_por_dojo(cfg)
-    avaliadores = _carregar_avaliadores(cadastro)
+    avaliadores = _carregar_avaliadores(cadastro, cfg)   # v2.1: também olha config/
     sensei_responsavel = (senseis.get(dojo_id)
                           or avaliadores.get(avaliador_id)
                           or avaliador_id or "")
@@ -479,6 +561,10 @@ def main(argv: list[str] | None = None) -> int:
                           exame_id, dojo_id, rel_dir,
                           nomes=nomes, sensei_responsavel=sensei_responsavel,
                           avaliadores_map=avaliadores)
+
+    # Upload automático ao Drive (pontos 10–11)
+    _enviar_relatorios_para_drive(rel_dir, exame_id, dojo_id,
+                                  sensei_responsavel)
     return 0
 
 
