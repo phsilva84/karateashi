@@ -2,9 +2,10 @@
 """tools/pre_exame.py — Folhas OMR v5.8 (faixa de titulos rente + nomes no
 rodape) + JSON de coordenadas.
 
-Comportamento padrao (configs):
-- alunos ............ data/cadastro/alunos.json (todos)
-- avaliadores ....... config/avaliadores.json (todos)
+Comportamento padrao:
+- alunos ............ SOMENTE os do DOJO do exame (data/exames.json define
+                      dojo_id; filtra data/cadastro/alunos.json por dojo_id)
+- avaliadores ....... SOMENTE os do exame (data/exames.json -> avaliadores)
 - layout ............ 3 alunos por folha (A4 paisagem 297x210mm)
 - filtros opcionais . --aluno / --avaliador / --csv (nenhum e obrigatorio)
 
@@ -20,6 +21,10 @@ Layout v5.8 (ajustes definitivos de posicionamento):
   do aluno em negrito 6,5pt no topo de cada bloco; logo abaixo, a faixa
   BOM! / A MELHORAR (3mm) com divisor vertical e os 6+6 circulos.
 
+NOMES NAS FOLHAS: usam abreviar_nome() (core/nomes.py) — ex.: "Pedro J. Silva"
+— para caber no espaco fixo da presenca e da faixa do rodape sem quebrar
+linha nem depender de fonte minima ilegivel. Os RELATORIOS usam o nome completo.
+
 Contrato OMR (este arquivo e core/omr_reader.py sao gemeos):
 - a MESMA geometria em mm (origem topo-esquerda) desenha e e gravada em
   {exame}_{avaliador}_folha1_coordenadas.json: presenca, frequencias
@@ -28,7 +33,6 @@ Contrato OMR (este arquivo e core/omr_reader.py sao gemeos):
 
 Uso:
   python tools/pre_exame.py --exame EXA-D01-2026-10 --validar
-  python tools/pre_exame.py --exame EXA-D01-2026-10 --avaliador S01 --validar
 """
 from __future__ import annotations
 
@@ -49,6 +53,7 @@ from reportlab.pdfgen import canvas as pdfcanvas
 
 from core import observacoes
 from core.config import QUESITOS, carregar_json
+from core.nomes import abreviar_nome                      # [NOMES]
 from core.observacoes import OBS_MELHORAR, OBS_POSITIVAS
 
 MM = 72.0 / 25.4
@@ -59,46 +64,36 @@ BALOES_POR_CRITERIO = 5
 # ---------------------------------------------------------------------------
 # Geometria (mm, origem topo-esquerda) — fonte unica folha/JSON
 # ---------------------------------------------------------------------------
-# Geometria em mm (fonte única)
 MARGEM = 10.0
-HEADER_H = 34.0                       # cabeçalho (28 + 6mm de margem de
-                                      # segurança p/ impressoras que cortam
-                                      # o topo; o conteúdo do cabeçalho
-                                      # agora começa em y≈14)
-FOOTER_H = 40.0                       # rodapé de observações (ampliado)
+HEADER_H = 34.0
+FOOTER_H = 40.0
 LINHA_Y0 = HEADER_H
-LINHA_H = (A4_H_MM - HEADER_H - FOOTER_H) / ALUNOS_POR_FOLHA  # (210-34-40)/3 = 45.33mm
-FOOTER_Y0 = LINHA_Y0 + 3 * LINHA_H    # início do rodapé (mantém 170mm)
-# QR do exame (canto superior direito) — REDUZIDO para 14mm
-QR_CAB_X = A4_W_MM - MARGEM - 14.0    # 273mm
-QR_CAB_Y = 14.0                       # antes 8.0 (recuado do topo)
+LINHA_H = (A4_H_MM - HEADER_H - FOOTER_H) / ALUNOS_POR_FOLHA  # 45.33mm
+FOOTER_Y0 = LINHA_Y0 + 3 * LINHA_H
+QR_CAB_X = A4_W_MM - MARGEM - 14.0
+QR_CAB_Y = 14.0
 QR_CAB_TAM = 14.0
-
-# QR dos ALUNOS no CABEÇALHO — posição define a linha (1º=linha1, 2º=linha2, 3º=linha3)
 QR_ALUNO_CAB_X = [195.0, 214.0, 233.0]
-QR_ALUNO_CAB_Y = 14.0                 # antes 8.0 (recuado do topo)
+QR_ALUNO_CAB_Y = 14.0
 QR_ALUNO_CAB_TAM = 11.0
 
-# Grade de quesitos
 QUESITO_X0 = MARGEM
 QUESITO_LARG = (A4_W_MM - 2 * MARGEM) / 4.0     # 69.25
-QUESITO_TITLE_Y0 = 1.2      # RENTE a borda superior da linha (<- antes 4.2)
+QUESITO_TITLE_Y0 = 1.2
 QUESITO_TITLE_H = 3.0
-QUESITO_TITLE_CY = 2.7      # centro do texto na faixa
-CRIT_Y0 = 6.0               # 1o criterio logo abaixo da faixa (<- antes 8.5)
-CRIT_ESPACO = 4.9           # uma linha por criterio
+QUESITO_TITLE_CY = 2.7
+CRIT_Y0 = 6.0
+CRIT_ESPACO = 4.9
 TEXTO_CRIT_X = 1.0
 BALAO_X0 = 34.0
 BALAO_ESPACO = 5.0
 BALAO_RAIO = 1.8
-BALAO_Y_OFFSET = 0.6        # balao centralizado com o texto (<- antes 1.2)
+BALAO_Y_OFFSET = 0.6
 
-# Presenca (fim da coluna Kihon)
 PRES_RAIO = 1.8
 PRES_LABEL_GAP = 1.5
 PRES_BOT_OFFSET = 4.0
 
-# Rodape de observacoes
 OBS_BLOCK_GAP = 2.0
 OBS_ITEM_ESPACO = 3.8
 OBS_RAIO = 1.5
@@ -106,7 +101,6 @@ OBS_CHK_X_OFFSET = 3.5
 OBS_TEXTO_GAP = 3.0
 OBS_BOTTOM_MARGIN = 5.0
 
-# Tipografia
 F_TITULO = 13
 F_SUBTITULO = 9
 F_INSTRUCAO = 6.5
@@ -115,7 +109,7 @@ F_CRITERIO = 6.0
 F_CRITERIO_MIN = 5.5
 F_OBS = 6.0
 F_OBS_TITULO = 5.5
-F_NOME_OBS = 6.5           # nome no rodape — proporcional (<- antes 8.0)
+F_NOME_OBS = 6.5
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +159,7 @@ def _qr(pdf, texto, x_mm, y_topo_mm, lado_mm):
 
 
 # ---------------------------------------------------------------------------
-# Cargas (default = configs)
+# Cargas
 # ---------------------------------------------------------------------------
 def _carregar_alunos(csv_path, raiz):
     if csv_path is not None:
@@ -206,8 +200,6 @@ def _nome_dojo(raiz, dojo_id):
 def _desenhar_cabecalho(pdf, av, dojo_id, dojo_nome, exame):
     rotulo = (dojo_nome if dojo_nome.strip().lower().startswith("dojo")
               else f"Dojo {dojo_nome}")
-    # Margem de segurança no topo: impressoras comuns cortam ~5-6mm.
-    # Texto recuado para y>=8mm; QRs (exame) começam em y=14mm.
     _texto(pdf, f"{rotulo} ({dojo_id}) | Avaliador: {av['nome']} ({av['id']}) "
                 f"| Exame: {exame}", MARGEM, 8.0, F_SUBTITULO)
     _texto(pdf, "Instrucao: preencha os circulos com caneta. Marque o circulo "
@@ -221,13 +213,11 @@ def _desenhar_linha(pdf, aluno, idx, matriz_faixa, coords, pagina):
     y0 = HEADER_H + idx * LINHA_H
     y1 = y0 + LINHA_H
 
-    # Borda da linha
     pdf.setStrokeColorRGB(0, 0, 0)
     pdf.setFillColorRGB(1, 1, 1)
     pdf.rect(MARGEM * MM, _y(y1), (A4_W_MM - 2 * MARGEM) * MM,
              LINHA_H * MM, stroke=1, fill=0)
 
-    # Faixa cinza KIHON/KATA/BUNKAI/KUMITE — RENTE a borda superior
     pdf.setFillColorRGB(0.92, 0.92, 0.92)
     pdf.rect(QUESITO_X0 * MM,
              _y(y0 + QUESITO_TITLE_Y0 + QUESITO_TITLE_H),
@@ -238,7 +228,6 @@ def _desenhar_linha(pdf, aluno, idx, matriz_faixa, coords, pagina):
         _texto_centrado(pdf, quesito.upper(), x_col + QUESITO_LARG / 2,
                         y0 + QUESITO_TITLE_CY, F_QUESITO, "Helvetica-Bold")
 
-    # Criterios numerados (1 linha) + 5 baloes, centralizados no texto
     for i, quesito in enumerate(QUESITOS):
         x_col = QUESITO_X0 + i * QUESITO_LARG
         crits = matriz_faixa.get("quesitos", {}).get(quesito, {}).get(
@@ -269,7 +258,9 @@ def _desenhar_linha(pdf, aluno, idx, matriz_faixa, coords, pagina):
     pres_cx = QUESITO_X0 + 2.0
     pres_cy = y1 - PRES_BOT_OFFSET
     _balao(pdf, pres_cx, pres_cy, PRES_RAIO)
-    rotulo_p = f"{aluno['nome']} ({aluno['faixa_atual'].capitalize()})"
+    # [NOMES] nome abreviado na presenca
+    rotulo_p = f"{abreviar_nome(aluno['nome'])} " \
+               f"({aluno['faixa_atual'].capitalize()})"
     tam_p = 6.5
     while stringWidth(rotulo_p, "Helvetica", tam_p) > (QUESITO_LARG - 6.0) * MM and tam_p > 5.0:
         tam_p -= 0.5
@@ -278,7 +269,6 @@ def _desenhar_linha(pdf, aluno, idx, matriz_faixa, coords, pagina):
                    "x_mm": round(pres_cx, 2), "y_mm": round(pres_cy, 2),
                    "r_mm": PRES_RAIO})
 
-    # Divisorias verticais
     for qi in range(1, 4):
         dx = QUESITO_X0 + qi * QUESITO_LARG
         pdf.line(dx * MM, _y(y1 - 2), dx * MM, _y(y0 + 2))
@@ -293,27 +283,25 @@ def _desenhar_rodape(pdf, alunos, coords, pagina):
     col_larg = bloco_larg / 2
     area_top = FOOTER_Y0 + 0.5
     area_bot = A4_H_MM - OBS_BOTTOM_MARGIN
-    nome_band_h = 3.6                 # faixa do NOME (compacta)
+    nome_band_h = 3.6
     nome_y0 = area_top + 0.4
-    band_y0 = nome_y0 + nome_band_h + 0.8   # faixa BOM!/A MELHORAR abaixo
+    band_y0 = nome_y0 + nome_band_h + 0.8
     band_h = 3.0
 
     for i, aluno in enumerate(alunos):
         bx = MARGEM + i * (bloco_larg + OBS_BLOCK_GAP)
-        # Caixa do bloco
         pdf.setStrokeColorRGB(0, 0, 0)
         pdf.setFillColorRGB(1, 1, 1)
         pdf.rect(bx * MM, (A4_H_MM - area_bot) * MM,
                  bloco_larg * MM, (area_bot - area_top) * MM,
                  stroke=1, fill=0)
-        # Faixa cinza do NOME do aluno (fundo destacado, fonte proporcional)
         pdf.setFillColorRGB(0.85, 0.85, 0.85)
         pdf.rect(bx * MM, (A4_H_MM - (nome_y0 + nome_band_h)) * MM,
                  bloco_larg * MM, nome_band_h * MM, stroke=0, fill=1)
         pdf.setFillColorRGB(0, 0, 0)
-        _texto(pdf, aluno["nome"], bx + 2.0, nome_y0 + nome_band_h / 2,
-               F_NOME_OBS, "Helvetica-Bold")
-        # Faixa cinza BOM!/A MELHORAR
+        # [NOMES] nome abreviado na faixa do rodapé
+        _texto(pdf, abreviar_nome(aluno["nome"]), bx + 2.0,
+               nome_y0 + nome_band_h / 2, F_NOME_OBS, "Helvetica-Bold")
         pdf.setFillColorRGB(0.92, 0.92, 0.92)
         pdf.rect(bx * MM, (A4_H_MM - (band_y0 + band_h)) * MM,
                  bloco_larg * MM, band_h * MM, stroke=0, fill=1)
@@ -322,10 +310,8 @@ def _desenhar_rodape(pdf, alunos, coords, pagina):
                         band_y0 + band_h / 2, F_OBS_TITULO, "Helvetica-Bold")
         _texto_centrado(pdf, "A MELHORAR", bx + col_larg + col_larg / 2,
                         band_y0 + band_h / 2, F_OBS_TITULO, "Helvetica-Bold")
-        # Divisor vertical
         pdf.line((bx + col_larg) * MM, (A4_H_MM - area_bot) * MM,
                  (bx + col_larg) * MM, (A4_H_MM - (band_y0 + band_h)) * MM)
-        # Itens 6+6
         for col, (titulo, dicio, prefixo) in enumerate(
                 (("BOM!", observacoes.OBS_POSITIVAS, "obs_p"),
                  ("A MELHORAR", observacoes.OBS_MELHORAR, "obs_m"))):
@@ -345,24 +331,36 @@ def _desenhar_rodape(pdf, alunos, coords, pagina):
 # JSON de coordenadas
 # ---------------------------------------------------------------------------
 def _coords_por_aluno(coords, alunos_pag):
+    """Agrupa por pagina e enumera a posicao DENTRO da pagina (1..3).
+
+    Corrige o bug de multiplas paginas: os coords gravam 'aluno' como a
+    posicao na pagina (1..3), entao o indice global (1..26) nunca casa nas
+    paginas 2+.
+    """
+    por_pagina: dict[int, list] = {}
+    for aluno, pagina in alunos_pag:
+        por_pagina.setdefault(pagina, []).append(aluno)
+
     saida = []
-    for pos, (aluno, pagina) in enumerate(alunos_pag, start=1):
-        itens = [c for c in coords if c["pagina"] == pagina and c["aluno"] == pos]
-        pres = next((c for c in itens if c["tipo"] == "presenca"), None)
-        freqs = {}
-        for c in itens:
-            if c["tipo"] == "freq":
-                freqs.setdefault(c["chave"], []).append(
-                    {"x_mm": c["x_mm"], "y_mm": c["y_mm"], "r_mm": c["r_mm"]})
-        obs = {c["tipo"]: {"x_mm": c["x_mm"], "y_mm": c["y_mm"],
-                           "r_mm": c["r_mm"]}
-               for c in itens if c["tipo"].startswith("obs_")}
-        saida.append({"id": aluno["id"],
-                      "faixa": aluno["faixa_atual"].strip().lower(),
-                      "pagina": pagina,
-                      "presenca": pres if pres else {},
-                      "frequencias": freqs,
-                      "observacoes": obs})
+    for pagina in sorted(por_pagina):
+        for pos, aluno in enumerate(por_pagina[pagina], start=1):
+            itens = [c for c in coords
+                     if c["pagina"] == pagina and c["aluno"] == pos]
+            pres = next((c for c in itens if c["tipo"] == "presenca"), None)
+            freqs = {}
+            for c in itens:
+                if c["tipo"] == "freq":
+                    freqs.setdefault(c["chave"], []).append(
+                        {"x_mm": c["x_mm"], "y_mm": c["y_mm"], "r_mm": c["r_mm"]})
+            obs = {c["tipo"]: {"x_mm": c["x_mm"], "y_mm": c["y_mm"],
+                               "r_mm": c["r_mm"]}
+                   for c in itens if c["tipo"].startswith("obs_")}
+            saida.append({"id": aluno["id"],
+                          "faixa": aluno["faixa_atual"].strip().lower(),
+                          "pagina": pagina,
+                          "presenca": pres if pres else {},
+                          "frequencias": freqs,
+                          "observacoes": obs})
     return saida
 
 
@@ -375,7 +373,7 @@ def _gerar_folhas(exame, alunos, avaliadores, dojo_id, matriz_faixa, saida):
                   for a in bloco]
     gerados = []
     for av in avaliadores:
-        pdf = pdfcanvas.Canvas(str(saida / f"folhas_{av['id']}.pdf"),
+        pdf = pdfcanvas.Canvas(str(saida / f"{exame}_{av['id']}.pdf"),
                                pagesize=landscape(A4))
         coords = []
         for pagina_i, bloco in enumerate(paginas, start=1):
@@ -393,7 +391,7 @@ def _gerar_folhas(exame, alunos, avaliadores, dojo_id, matriz_faixa, saida):
                  "avaliador_id": av["id"], "dojo_id": dojo_id,
                  "pagina": "A4-paisagem (297x210mm)",
                  "alunos": _coords_por_aluno(coords, alunos_pag)}
-        coords_path = saida / f"{exame}_{av['id']}_folha1_coordenadas.json"
+        coords_path = saida / f"{exame}_{av['id']}_coordenadas.json"
         coords_path.write_text(json.dumps(dados, ensure_ascii=False,
                                           indent=2), encoding="utf-8")
         gerados.extend([saida / f"folhas_{av['id']}.pdf", coords_path])
@@ -431,25 +429,30 @@ def main():
     ap.add_argument("--csv", type=Path, default=None)
     ap.add_argument("--aluno", action="append", default=None)
     ap.add_argument("--avaliador", action="append", default=None)
-    ap.add_argument("--dojo", default="D01")
+    ap.add_argument("--dojo", default=None)   # [DOJO] opcional; vem do exame
     ap.add_argument("--saida", type=Path, default=RAIZ / "output" / "pre_exame")
     ap.add_argument("--validar", action="store_true")
     args = ap.parse_args()
 
-    alunos = _carregar_alunos(args.csv, RAIZ)
-    if args.aluno:
-        alunos = [a for a in alunos if a["id"] in args.aluno]
-    if not alunos:
-        print("nenhum aluno selecionado (filtro vazio?)")
-        return 2
-       # Regra: o EXAME define seus avaliadores (pre-selecionados no manifest).
-    # Gera folhas SÓ para eles — nunca para todos do config/avaliadores.json.
+    # 1. Exame define dojo + avaliadores (fonte unica)  [DOJO]
     exames = carregar_json(RAIZ / "data" / "exames.json").get("exames", [])
     exame = next((e for e in exames if e["id"] == args.exame), None)
     if exame is None:
         print(f"[ERRO] Exame '{args.exame}' não encontrado em data/exames.json.")
         return 2
+    dojo_id = args.dojo or exame.get("dojo_id") or "D01"
     ids_exame = exame.get("avaliadores", [])
+
+    # 2. Alunos SOMENTE do dojo do exame  [DOJO]
+    alunos = _carregar_alunos(args.csv, RAIZ)
+    alunos = [a for a in alunos if a.get("dojo_id") == dojo_id]
+    if args.aluno:
+        alunos = [a for a in alunos if a["id"] in args.aluno]
+    if not alunos:
+        print(f"nenhum aluno do dojo '{dojo_id}' para o exame '{args.exame}'")
+        return 2
+
+    # 3. Avaliadores do exame (nunca todos do config)
     avaliadores = _carregar_avaliadores(RAIZ, ids_exame)
     if not avaliadores:
         print(f"[ERRO] Nenhum avaliador do exame '{args.exame}' encontrado "
@@ -457,7 +460,7 @@ def main():
         return 2
     matriz = carregar_json(RAIZ / "config" / "faixas" / "branca.json")
 
-    gerados = _gerar_folhas(args.exame, alunos, avaliadores, args.dojo,
+    gerados = _gerar_folhas(args.exame, alunos, avaliadores, dojo_id,
                             matriz, args.saida)
     for p in gerados:
         print(f"  gerado: {p.relative_to(RAIZ)}")

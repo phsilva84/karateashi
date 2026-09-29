@@ -8,24 +8,10 @@
       "status": "agendado"
     },
     {
-      "id": "EXA-D03-2026-10",
-      "dojo_id": "D03",
+      "id": "EXA-D02-026-10",
+      "dojo_id": "D02",
       "data_exame": "2026-10-04",
       "avaliadores": ["S01", "S04", "S05"],
-      "status": "agendado"
-    },
-    {
-      "id": "EXA-D01-2026-10-IMP",
-      "dojo_id": "D01",
-      "data_exame": "2026-10-10",
-      "avaliadores": ["S01"],
-      "status": "agendado"
-    },
-    {
-      "id": "EXA-D01-2026-10-SCRIPT",
-      "dojo_id": "D01",
-      "data_exame": "2026-10-10",
-      "avaliadores": ["S01", "S02", "S03"],
       "status": "agendado"
     }
   ]
