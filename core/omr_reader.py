@@ -1,4 +1,4 @@
-"""core/omr_reader.py — Leitura OMR por busca local (Karate-Ashi v3.17).
+"""core/omr_reader.py — Leitura OMR por busca local (Karate-Ashi v3.21).
 
 Semântica do domínio (definida pelo usuário):
 - O avaliador marca TODOS os balões que observou (1..5 por critério);
@@ -13,10 +13,28 @@ Semântica do domínio (definida pelo usuário):
 Padrão rbaron/omr + OMRChecker (skill "Leitura OMR por Busca Local"):
 - PROIBIDO fiduciais/cruzes. Desalinhamento por BUSCA LOCAL por balão
   (janela ±3mm; presença ±5mm) — mede no centro real do anel.
-- QR via pyzbar primeiro (fallback cv2.QRCodeDetector). Scan A4 -> resize
-  direto 3508x2480; warp só se não for A4.
+- QR via zxing-cpp (primário, robusto p/ QR pequeno 11mm em scan) com
+  pyzbar (fallback, múltiplas variantes: 2x/3x, otsu, adaptive, clahe).
+- Scan A4 -> resize direto 3508x2480; warp só se não for A4.
 - Calibração de offset GLOBAL (mediana) + OFFSET POR LINHA.
 - Presença não marcada -> AUSENTE (sem avaliar). Regra: módulo <= ~400 linhas.
+
+Desambiguação por página (v3.21 — QR é a FONTE PRIMÁRIA):
+- O QR de aluno (KA|ALUNO=.., x=195/214/233mm) identifica as 1..3 linhas
+  DAQUELA página — contrato do desenho: "o QRcode serve para identificar
+  folha-exame/alunos". SEM fallback silencioso por ordem do lote: a ordem
+  de digitalização NÃO é garantida.
+- Hierarquia oficial:
+    1) QRs de aluno por SUBCONJUNTO: casa a página se TODOS os IDs lidos
+       estão contidos em exatamente UMA página do JSON (não exige o
+       conjunto completo — ex.: {W02,W03} identifica a página 1 mesmo
+       faltando W01). Ordem-independente.
+    2) senão, pagina_por_ordem SÓ se o chamador passar explicitamente
+       (flag --assumir-ordem-lote no ingest — responsabilidade do usuário);
+    3) senão, JSON com UMA página única -> todos os alunos;
+    4) senão -> ERRO claro (nunca processa lixo sem saber a página).
+- Regra ANTI-PARCIAL: subconjunto ambíguo (contido em mais de uma página)
+  NÃO decide — cai para a etapa seguinte (evita avaliação faltando).
 """
 from __future__ import annotations
 import re
@@ -91,23 +109,50 @@ def normalizar_a4(img: np.ndarray) -> np.ndarray:
 # QR
 # ---------------------------------------------------------------------------
 def _ler_qrs(imagem: np.ndarray) -> list[tuple[str, tuple[int, int, int, int]]]:
+    """Decodifica QRs do frame.
+
+    zxing-cpp primeiro (robusto p/ QR pequeno 11mm em scan); pyzbar como
+    fallback com variantes (2x/3x, otsu, adaptive, clahe). Deduplica por
+    payload. Box em px da imagem ORIGINAL.
+    """
     cinza = _cinza(imagem)
     h, w = cinza.shape[:2]
     saida: list[tuple[str, tuple[int, int, int, int]]] = []
+
+    def _append(texto: str, box: tuple[int, int, int, int]) -> None:
+        if not any(t == texto for t, _ in saida):
+            saida.append((texto, box))
+
+    # 1) zxing-cpp — primário (pip install zxing-cpp)
+    try:
+        from zxingcpp import read_barcodes
+        for fator in (1, 2, 3):
+            base = cinza if fator == 1 else cv2.resize(
+                cinza, (w * fator, h * fator),
+                interpolation=cv2.INTER_CUBIC)
+            try:
+                for bar in read_barcodes(base):
+                    if bar.format.name != "QRCode":
+                        continue
+                    pts = [bar.position.top_left, bar.position.top_right,
+                           bar.position.bottom_left, bar.position.bottom_right]
+                    xs = [int(p.x) for p in pts]
+                    ys = [int(p.y) for p in pts]
+                    x0, x1 = min(xs), max(xs)
+                    y0, y1 = min(ys), max(ys)
+                    _append(bar.text, (int(x0 / fator), int(y0 / fator),
+                                       int((x1 - x0) / fator),
+                                       int((y1 - y0) / fator)))
+            except Exception:  # noqa: BLE001 — zxing não derruba a leitura
+                continue
+        if saida:
+            return saida
+    except ImportError:
+        pass
+
+    # 2) pyzbar — fallback com variantes de preprocessamento
     try:
         from pyzbar import pyzbar
-        cinza_2x = cv2.resize(cinza, (w * 2, h * 2),
-                              interpolation=cv2.INTER_CUBIC)
-        _, otsu = cv2.threshold(cinza, 0, 255,
-                                cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        for variante, fator in ((cinza, 1.0), (cinza_2x, 2.0), (otsu, 1.0)):
-            for qr in pyzbar.decode(variante):
-                texto = qr.data.decode("utf-8", "replace")
-                x, y, wq, hq = qr.rect
-                saida.append((texto, (int(x / fator), int(y / fator),
-                                      int(wq / fator), int(hq / fator))))
-            if saida:
-                break
     except ImportError:
         det = cv2.QRCodeDetector()
         texto, pts, _ = det.detectAndDecode(imagem)
@@ -115,8 +160,38 @@ def _ler_qrs(imagem: np.ndarray) -> list[tuple[str, tuple[int, int, int, int]]]:
             box = pts[0].astype(int).reshape(-1, 2)
             x0, y0 = box.min(axis=0)
             x1, y1 = box.max(axis=0)
-            saida.append((texto, (int(x0), int(y0),
-                                  int(x1 - x0), int(y1 - y0))))
+            _append(texto, (int(x0), int(y0),
+                            int(x1 - x0), int(y1 - y0)))
+        return saida
+
+    _, otsu = cv2.threshold(cinza, 0, 255,
+                            cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    adapt51 = cv2.adaptiveThreshold(cinza, 255,
+                                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                    cv2.THRESH_BINARY, 51, 15)
+    adapt101 = cv2.adaptiveThreshold(cinza, 255,
+                                     cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                     cv2.THRESH_BINARY, 101, 10)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(cinza)
+    variantes: list[tuple[str, np.ndarray, float]] = [
+        ("orig", cinza, 1.0),
+        ("2x", cv2.resize(cinza, (w * 2, h * 2),
+                          interpolation=cv2.INTER_CUBIC), 2.0),
+        ("3x", cv2.resize(cinza, (w * 3, h * 3),
+                          interpolation=cv2.INTER_CUBIC), 3.0),
+        ("otsu", otsu, 1.0),
+        ("adapt51", adapt51, 1.0),
+        ("adapt101", adapt101, 1.0),
+        ("clahe", clahe, 1.0),
+    ]
+    for nome, img_v, fator in variantes:  # noqa: B007
+        for qr in pyzbar.decode(img_v):
+            texto = qr.data.decode("utf-8", "replace")
+            x, y, wq, hq = qr.rect
+            _append(texto, (int(x / fator), int(y / fator),
+                            int(wq / fator), int(hq / fator)))
+        if saida:
+            break
     return saida
 
 def _payload_por_prefixo(imagem: np.ndarray, prefixo: str) -> str | None:
@@ -349,7 +424,10 @@ def _anular_contradicoes(marcadas: set[str], incidentes: list[str]) -> None:
 # ---------------------------------------------------------------------------
 def _carregar_coordenadas(pasta: Path, exame: str,
                           avaliador: str) -> dict | None:
-    candidatos = sorted(pasta.glob(f"{exame}_{avaliador}_*_coordenadas.json"))
+    # Novo padrão (sem 'folha1'): {exame}_{avaliador}_coordenadas.json
+    candidatos = sorted(pasta.glob(f"{exame}_{avaliador}_coordenadas.json"))
+    if not candidatos:  # legado: {exame}_{avaliador}_folha1_coordenadas.json
+        candidatos = sorted(pasta.glob(f"{exame}_{avaliador}_*_coordenadas.json"))
     if not candidatos:
         return None
     return carregar_json(candidatos[0])
@@ -358,7 +436,8 @@ def _carregar_coordenadas(pasta: Path, exame: str,
 # ---------------------------------------------------------------------------
 def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
                      faixa: str | None = None,
-                     origem: str | None = None) -> list[dict]:
+                     origem: str | None = None,
+                     pagina_por_ordem: int | None = None) -> list[dict]:
     imagem = carregar_imagem(caminho_imagem)
     m = _QR_EXAME.search(_payload_por_prefixo(imagem, "AVALIADOR") or "")
     if not m:
@@ -378,18 +457,70 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
             f"JSON de coordenadas nao encontrado em output/pre_exame/ "
             f"({exame}_{avaliador}_*_coordenadas.json). Gere a folha com "
             f"tools/pre_exame.py e digitalize o PDF gerado.")
-    _ler_alunos_do_qr(a4)
+
+    # --- Desambiguação da página (v3.21): QR é a FONTE PRIMÁRIA ----------
+    # O QR de aluno identifica as 1..3 linhas DESTA página (contrato do
+    # desenho). SEM fallback silencioso por ordem do lote: a ordem de
+    # digitalização NÃO é garantida. pagina_por_ordem só entra se o
+    # chamador passar explicitamente (flag --assumir-ordem-lote).
+    por_pag: dict[int, set] = {}
+    for a in coords["alunos"]:
+        por_pag.setdefault(a.get("pagina", 1), set()).add(a["id"])
+    paginas_json = sorted(por_pag)
+
+    ids_lidos = {aid for aid, _ in _ler_alunos_do_qr(a4)}
+    # Página por QR: casa por SUBCONJUNTO (não exige o conjunto completo).
+    # Cada aluno pertence a UMA página; se os IDs decodificados estão todos
+    # contidos em exatamente uma página, essa é a página — mesmo que falte
+    # algum QR (ex.: só W02,W03 numa página de 3). Só não decide se o
+    # subconjunto for ambíguo (contido em mais de uma página).
+    pagina_por_qr = None
+    if ids_lidos:
+        candidatas = [p for p, ids in por_pag.items()
+                      if ids_lidos <= ids]
+        if len(candidatas) == 1:
+            pagina_por_qr = candidatas[0]
+
+    alunos = coords["alunos"]
+    ids_pagina: list[str] = []
+    uso_ordem = False
+    if pagina_por_qr is not None:
+        alunos = [a for a in alunos if a.get("pagina", 1) == pagina_por_qr]
+        ids_pagina = sorted(por_pag[pagina_por_qr])
+    elif pagina_por_ordem is not None:
+        # Opção EXPLÍCITA — só quando o usuário garante a ordem do lote.
+        alunos = [a for a in alunos
+                  if a.get("pagina", 1) == pagina_por_ordem]
+        if not alunos:
+            raise ValueError(
+                f"pagina {pagina_por_ordem} nao existe no JSON de "
+                f"coordenadas (paginas: {','.join(map(str, paginas_json))}).")
+        uso_ordem = True
+    elif len(paginas_json) == 1:
+        pass  # folha unica — todos os alunos sao desta pagina
+    else:
+        raise ValueError(
+            "QRs de aluno nao lidos e o JSON tem multiplas paginas "
+            f"({','.join(map(str, paginas_json))}). Rode "
+            "tools/diagnostico_qr.py --pasta <scans> e verifique a "
+            "decodificacao (instale: pip install zxing-cpp). Se a ordem "
+            "dos scans for garantida, use --assumir-ordem-lote no ingest.")
+
     amostra: list[dict] = []
-    for aluno in coords["alunos"]:
+    for aluno in alunos:
         amostra.append(aluno["presenca"])
         for baloes in aluno.get("frequencias", {}).values():
             amostra.extend(baloes)
     dx_mm, dy_mm = _calibrar_offset(cinza, amostra, escala, janela_px)
     resultados = []
-    for aluno in coords["alunos"]:
+    for aluno in alunos:
         aluno_id = aluno["id"]
         faixa_aluno = (faixa or aluno.get("faixa") or "branca").strip().lower()
         incidentes = ["origem:" + (origem or "desconhecida")]
+        if pagina_por_qr is not None:
+            incidentes.append(f"qrs_pagina:{','.join(ids_pagina)}")
+        elif uso_ordem:
+            incidentes.append(f"pagina_por_ordem:{pagina_por_ordem}")
         if dx_mm or dy_mm:
             incidentes.append(
                 f"calibracao_offset:dx={dx_mm:.2f},dy={dy_mm:.2f}")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/ingest_folhas.py — Ingestão unificada scanner + fotos (v2col-4.1 revisado).
+"""tools/ingest_folhas.py — Ingestão unificada scanner + fotos (v2col-4.3).
 
 Segunda camada de entrada: além das FOTOS de celular, o sistema aceita folhas
 DIGITALIZADAS (scanner de mesa ou ADF). O objetivo é não depender da qualidade
@@ -14,24 +14,31 @@ Origem (--origem):
 Formato: .jpg .jpeg .png .tif .tiff .bmp .webp e .pdf. TIFF e PDF multipágina
 são expandidos automaticamente — uma página = uma folha.
 
+Desambiguação de página (v4.3):
+- O padrão é a IDENTIFICAÇÃO PELA QR DE ALUNO (o QR identifica a folha e
+  os alunos daquela página, independente da ordem do lote).
+- --assumir-ordem-lote é uma EXCEÇÃO EXPLÍCITA: atribui a página pela
+  ordem dos arquivos (1..N). SÓ use se os scans estiverem garantidamente
+  em ordem de página. Sem o flag, o ingest NUNCA assume ordem — se os
+  QRs não decodificarem e o exame tiver múltiplas páginas, o processar
+  falha com mensagem clara (nunca processa lixo).
+
 Saídas:
   - um JSON por aluno (schema v2.0) em --saida:
       {pagina.stem}_{aluno_id}.json
   - resumo_ingestao.json (auditoria do lote — o pipeline ignora este arquivo)
 
 Pré-requisito:
-  - core/omr_reader v3.14 exige o JSON de coordenadas gerado junto com a
-    folha (output/pre_exame/{exame}_{avaliador}_folha*_coordenadas.json).
+  - core/omr_reader v3.20 exige o JSON de coordenadas gerado junto com a
+    folha (output/pre_exame/{exame}_{avaliador}_coordenadas.json).
     Gere as folhas com tools/pre_exame.py ANTES de ingerir os scans.
 
 Uso:
     python tools/ingest_folhas.py ^
-        --entrada "G:/Drives compartilhados/Karate-Ashi Inbox/entrada" ^
+        --entrada "G:/Meu Drive/documentos/KarateAshi_Exames/scans" ^
         --config config ^
-        --saida "G:/Drives compartilhados/Karate-Ashi Arquivo/processados" ^
-        --arquivo "G:/Drives compartilhados/Karate-Ashi Arquivo/imagens" ^
-        --origem auto ^
-        --faixa branca
+        --saida output/omr ^
+        --origem scanner
 """
 from __future__ import annotations
 
@@ -119,7 +126,7 @@ def _expandir(caminho: Path, destino: Path) -> list[Path]:
 
 def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
-        description="Ingestão de folhas (scanner + fotos) — Karate-Ashi v2col-4.1")
+        description="Ingestão de folhas (scanner + fotos) — Karate-Ashi v2col-4.3")
     ap.add_argument("--entrada", required=True, type=Path,
                     help="pasta com os scans/fotos (lida recursivamente)")
     ap.add_argument("--config", type=Path, default=RAIZ / "config",
@@ -135,6 +142,10 @@ def _parse_args() -> argparse.Namespace:
                     help="scanner = pula warp; foto = warp por contorno/âncora")
     ap.add_argument("--faixa", default=None,
                     help="força a faixa; sem isso, vem do QR do aluno")
+    ap.add_argument("--assumir-ordem-lote", action="store_true",
+                    help="usa a ordem dos arquivos do lote para atribuir a "
+                         "pagina (SÓ se os scans estiverem em ordem 1..N; "
+                         "o padrao é identificar pela QR de aluno)")
     return ap.parse_args()
 
 
@@ -166,6 +177,8 @@ def main() -> int:
         return 3
 
     processadas, falhas = [], []
+    # Contador do lote — SÓ ativo com --assumir-ordem-lote.
+    ordem_pagina = 0
     for arquivo in arquivos:
         # Decisão 1: resolve a origem UMA vez por arquivo (não por página).
         origem = args.origem
@@ -180,13 +193,18 @@ def main() -> int:
 
         paginas_ok = True
         for pagina in paginas:
+            if args.assumir_ordem_lote:
+                ordem_pagina += 1
             rotulo = arquivo.name if len(paginas) == 1 else pagina.name
             try:
                 # Assinatura canônica v2.0 + origem (v3.5):
-                # 'scanner' pula o warp (folha já plana) — corrige QR do
-                # aluno não lido e balões desalinhados no scan.
+                # 'scanner' pula o warp (folha já plana).
+                # Página: identificada pela QR de aluno por padrão; a ordem
+                # do lote só entra com a flag explícita --assumir-ordem-lote.
                 resultados = omr_reader.processar_imagem(
-                    pagina, args.config, faixa=args.faixa, origem=origem)
+                    pagina, args.config, faixa=args.faixa, origem=origem,
+                    pagina_por_ordem=(ordem_pagina
+                                      if args.assumir_ordem_lote else None))
             except ValueError as exc:
                 falhas.append((rotulo, str(exc)))
                 paginas_ok = False
@@ -236,7 +254,7 @@ def main() -> int:
     # Resumo do lote — auditoria; o pipeline ignora este arquivo
     # (core/pipeline.carregar_jsons_omr exclui resumo_ingestao.json).
     resumo = {
-        "versao_ingest": "v2col-4.1-revisado",
+        "versao_ingest": "v2col-4.3-revisado",
         "gerado_em": time.strftime("%Y-%m-%d %H:%M:%S"),
         "total_processadas": len(processadas),
         "total_falhas": len(falhas),
