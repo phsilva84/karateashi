@@ -108,7 +108,8 @@ jobs:
       - name: Executar pipeline (gera relatórios + staging; sem upload local)
         run: |
           export PYTHONPATH=${PYTHONPATH:-}:.
-          python core/pipeline.py --config config --data data --output output --no-drive
+          python core/pipeline.py --config config --data data --output output \
+            --pasta-omr output/omr --no-drive
       - name: Upload relatórios + staging
         uses: actions/upload-artifact@v4
         with:
