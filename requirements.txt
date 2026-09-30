@@ -6,4 +6,5 @@ Pillow
 pypdfium2
 reportlab
 qrcode[pil]
+zxing-cpp==2.3.0
 requests>=2.31.0

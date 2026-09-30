@@ -119,7 +119,7 @@ jobs:
           export PYTHONPATH=${PYTHONPATH:-}:.
           set +e
           python tools/ingest_folhas.py --entrada data/scans --config config \
-            --saida output/omr --arquivo data/scans/processados --origem auto
+            --saida output/omr --arquivo data/scans/processados --origem scanner
           rc=$?
           set -e
           if [ "$rc" -eq 3 ]; then
