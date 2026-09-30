@@ -78,6 +78,11 @@ jobs:
             echo "[ERRO] Ingestão falhou (código $rc)."
             exit "$rc"
           fi
+      - name: Mover scans processados (idempotência persistente no Drive)
+        run: |
+          # Move para processados/ os scans que o ingest marcou como lidos.
+          # Assim, no próximo run, gdrive:scans só tem o que ainda não foi lido.
+          rclone move data/scans/ "gdrive:scans/processados/" --transfers 8 || true
       - name: Upload JSONs OMR
         uses: actions/upload-artifact@v4
         with:
