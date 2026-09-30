@@ -136,7 +136,8 @@ jobs:
 
       - name: Mover scans processados (idempotência persistente no Drive)
         run: |
-          rclone move data/scans/ "gdrive:scans/processados/" --transfers 8 || true
+          rclone move data/scans/ "gdrive:scans/processados/" \
+            --include "*.{png,jpg,jpeg,pdf,tif,tiff,bmp,webp}" --transfers 8 || true
 
       - name: Upload JSONs OMR
         if: steps.ingest.outputs.tem_folhas == 'true'
