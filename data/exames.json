@@ -8,11 +8,12 @@
       "status": "agendado"
     },
     {
-      "id": "EXA-D02-026-10",
+      "id": "EXA-D02-2026-10",
       "dojo_id": "D02",
       "data_exame": "2026-10-04",
       "avaliadores": ["S01", "S04", "S05"],
-      "status": "agendado"
+      "status": "agendado",
+      "gerar_folhas": false
     }
   ]
 }

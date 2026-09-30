@@ -4,4 +4,6 @@ numpy
 pyzbar
 Pillow
 pypdfium2
+reportlab
+qrcode[pil]
 requests>=2.31.0

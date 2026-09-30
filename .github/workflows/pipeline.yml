@@ -66,6 +66,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dados-entrada
+          path: data/cadastro/
       - name: Baixar scans do Drive
         run: |
           mkdir -p data/scans
@@ -73,15 +74,23 @@ jobs:
       - name: Gerar coordenadas das folhas (pre_exame)
         run: |
           export PYTHONPATH=${PYTHONPATH:-}:.
-          for exame in $(python -c "
-          import json
+          python - <<'PY'
+          import json, subprocess, sys
           exames = json.load(open('data/exames.json', encoding='utf-8')).get('exames', [])
-          print(' '.join(e['id'] for e in exames))
-          "); do
-            echo "[INFO] Gerando coordenadas para $exame"
-            python tools/pre_exame.py --exame "$exame" --config config \
-              --cadastro data/cadastro/alunos.json --out output/pre_exame
-          done
+          cadastro = json.load(open('data/cadastro/alunos.json', encoding='utf-8'))
+          por_dojo = {}
+          for a in cadastro.get('alunos', []):
+              did = a.get('dojo_id')
+              por_dojo[did] = por_dojo.get(did, 0) + 1
+          for e in exames:
+              if not e.get("gerar_folhas", True):
+              print(f"[INFO] {e['id']}: gerar_folhas=false — pulando")
+              continue
+              print(f"[INFO] Gerando coordenadas para {e['id']}")
+              subprocess.run([sys.executable, 'tools/pre_exame.py',
+                              '--exame', e['id'], '--saida', 'output/pre_exame'],
+                             check=True)
+          PY
       - name: Ingerir folhas (OMR)
         id: ingest
         run: |
@@ -129,10 +138,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dados-entrada
+          path: data/cadastro/
       - name: Baixar folhas OMR
         uses: actions/download-artifact@v4
         with:
           name: folhas-omr
+          path: output/omr/
       - name: Executar pipeline (gera relatórios + staging; sem upload local)
         run: |
           export PYTHONPATH=${PYTHONPATH:-}:.
@@ -165,6 +176,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: distribuicao
+          path: output/distribuicao/
       - name: Enviar ao Drive (espelha a árvore de staging)
         run: |
           rclone copy output/distribuicao/ \
