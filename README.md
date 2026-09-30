@@ -1,81 +1,158 @@
-# 🥋 Sistema Karate-Ashi v1.1.8
+# 🥋 Sistema Karate-Ashi v2.1
 
-Sistema de Processamento, Análise Técnica e Observabilidade Pedagógica para Exames de Karatê.
+Sistema de avaliação de exames de Karatê: leitura óptica (OMR) das folhas de avaliação, cálculo das notas pelo motor de regras e geração de relatórios visuais (HTML) em duas camadas — **Sensei** (por dojo) e **Master** (consolidado multi-dojo) — com distribuição automática para o Google Drive por sensei responsável.
 
 ## 🚀 Visão Geral
 
-O Karate-Ashi é um motor de processamento de dados desenvolvido em Python para transformar avaliações brutas de Senseis em relatórios estratégicos. O sistema adota princípios de **SRE (Site Reliability Engineering)**, garantindo idempotência, integridade de dados e uma interface de saída otimizada para dispositivos móveis via Telegram.
+- **Entrada:** scans (flatbed, A4 paisagem, ~300–400 DPI) das folhas de avaliação com balões de frequência e QR codes (exame, avaliador, aluno/faixa).
+- **Processamento:** ingestão OMR (busca local por balões + leitura de QR) → JSONs por folha → agregação por aluno (múltiplos avaliadores) → motor de cálculo.
+- **Saída:** relatórios HTML autossuficientes (prontos para preview no Drive, impressão A4 e arquivamento) + JSONs estruturados.
+- **Distribuição:** cópia automática para o Google Drive em pastas estáveis por nível de acesso (`master/` e `senseis/{Sensei}/`).
 
-## 🛠️ Arquitetura Técnica
+## 🔄 Fluxo de Funcionamento (Pipeline v2.1)
 
-- **Linguagem:** Python 3.10+
-- **Parser:** Baseado em Expressões Regulares (Regex) com controle de estado para múltiplos avaliadores.
-- **CI/CD:** GitHub Actions para automação de pipeline.
-- **Cloud Storage:** Sincronização via Rclone com Google Drive (Idempotência garantida).
-- **Notificação:** Integração com Telegram Bot API (Envio de documentos TXT).
-- **Encoding:** Saída em `utf-8-sig` para compatibilidade total com Excel e Google Sheets.
+1. **Geração das folhas** — `tools/pre_exame.py` gera o PDF das folhas com balões, QRs e grade de observações (BOM! / A MELHORAR).
+2. **Digitalização** — o dojo escaneia as folhas preenchidas (PNG, paisagem, 300–400 DPI).
+3. **Ingestão OMR** — `tools/ingest_folhas.py` lê os scans e produz um JSON por folha (metadados, presença, frequências por quesito/critério, observações marcadas).
+4. **Pipeline** — `core/pipeline.py` agrega as folhas por aluno, interpreta as frequências, chama o motor por faixa e gera os relatórios:
+   - `output/relatorios/relatorio_sensei_{EXAME}_{DOJO}.html` (camada Sensei);
+   - `output/relatorios/relatorio_master_{EXAME}.html` (master consolidado).
+5. **Upload ao Google Drive** — os HTMLs são copiados para a estrutura de pastas por nível de acesso (ver seção abaixo).
 
-## 🔄 Fluxo de Funcionamento (Pipeline)
+> Um arquivo por exame — o sistema suporta vários exames no mesmo ano (`{EXAME}` no nome do arquivo).
 
-1. **Ingestão:** O usuário faz o upload do arquivo `exame-dojo-DATA.txt` na pasta `data/`.
-2. **Trigger:** O GitHub Actions detecta o push e inicia o pipeline.
-3. **Sincronização (Idempotência):** O `rclone` baixa os relatórios existentes do Google Drive para a pasta `output/`.
-4. **Processamento (Engine):**
-   - O `parser.py` lê o arquivo, identifica Senseis, Alunos e Observações.
-   - O `calculator.py` processa as notas individuais e gera as métricas de grupo (N/Total).
-   - Se um relatório Master para aquela data já existir em `output/`, o motor dá **SKIP** no arquivo para evitar reprocessamento.
-5. **Geração de Artefatos:**
-   - `relatorio_consolidado_*.json`: Dados estruturados para histórico e BI.
-   - `relatorio_master_dojo_*.txt`: Relatório formatado para leitura humana (Telegram).
-6. **Distribuição:**
-   - O `rclone` sobe os novos relatórios para o Google Drive.
-   - O script de notificação envia o Relatório Master para o grupo do Telegram.
-7. **Finalização:** O arquivo original é movido para `data/processed/`.
+## 🧱 Arquitetura e Estrutura de Diretórios
 
-## 📏 Lógica de Cálculo e Regras de Negócio
+```text
+config/
+  dojos.json              # fonte da verdade dos dojos: id, nome, sensei responsável
+  avaliadores.json        # mapa avaliador_id → nome (S02 → Sensei Fabio)
+  faixas.json             # ordens de faixas: 'suportadas' (matriz v2.0) + 'placeholder'
+  regras_gerais.json      # regras de aprovação/atenção/elogios
+  recomendacoes.json      # recomendações por (quesito, critério): 'por_quesito' + legado na raiz
+  observacoes*.json       # vocabulário oficial de observações (positivas / a melhorar / contradições)
+  faixas/<faixa>.json     # matrizes por faixa (quesitos e critérios)
+core/
+  engine.py               # motor: processa_aluno, carregar_faixa, cálculo de nota por quesito
+  pipeline.py             # orquestração OMR → engine → relatórios → Drive
+  relatorio_html.py       # geradores de HTML (Sensei e Master)
+  relatorios.py           # dados estruturados e funções de relatório (sensei/master + legadas)
+  config.py               # carregamento de config e índices (faixas, quesitos)
+  observacoes_automaticas.py  # observações derivadas das marcações
+  nomes.py                # abreviação de nomes para as folhas
+data/
+  cadastro/alunos.csv     # cadastro: id,nome,faixa_atual,faixa_pretendida,dojo_id
+  cadastro/alunos.json    # merge idempotente do cadastro (via tools/importar_cadastro.py)
+output/
+  omr/                    # JSONs por folha gerados pelo ingest
+  relatorios/             # HTMLs gerados (Sensei + Master)
+tools/
+  pre_exame.py            # gera o PDF das folhas
+  ingest_folhas.py        # lê os scans (OMR) e emite os JSONs
+  importar_cadastro.py    # importa alunos de CSV
+tests/                    # testes automatizados (engine, OMR, pipeline, relatórios)
+.github/workflows/        # CI (validacao-config, testes, OMR, estresse)
+```
 
-### 1. Composição de Nota
+## 📏 Regras de Negócio
 
-O exame é dividido em 4 categorias, cada uma valendo **25.0 pontos**:
+### Composição de Nota
 
-- **Kihon** | **Kata** | **Bunkai** | **Kumite**
-- **Nota Máxima:** 100.0 | **Meta de Aprovação:** >= 70.0
+- O exame é dividido em 4 quesitos, cada um valendo **25.0 pontos**:
+  **Kihon** | **Kata** | **Bunkai** | **Kumite**.
+- **Nota máxima:** 100.0 · **Meta de aprovação:** >= 70.0.
+- Cada quesito tem critérios com pesos padronizados (códigos técnicos A1–A12); a leitura óptica mapeia cada balão posicional para o critério N da matriz vigente da faixa.
 
-### 2. Lógica de Quórum e Consenso
+### Semântica de Frequências
 
-O sistema é projetado para lidar com variabilidade no número de avaliadores:
+- **Notas (modo presença):** qualquer balão marcado conta como 1 ocorrência por critério — um avaliador contribui no máximo 1 por critério. Interpretação validada por testes.
+- **Relatórios (modo real):** as frequências reais (escala 1 a 5) por critério e por avaliador são preservadas e usadas nos relatórios (tabela de marcações do Sensei e agregações do Master).
 
-- **Quórum de 1 Avaliador:** A nota final do aluno é a nota absoluta atribuída por ele.
-- **Quórum de 2 ou 3 Avaliadores:** A nota final é a **média aritmética** das notas de todos os avaliadores ativos para aquele aluno.
-- **Consenso Pedagógico (Regra de Ouro):** Uma Recomendação Pedagógica de grupo só é gerada se **100% dos avaliadores** que avaliaram o aluno concordarem com a mesma falha (mesmo código) para aquele aluno específico. Isso evita que uma percepção isolada de um Sensei distorça o diagnóstico coletivo do Dojo.
+### Status Possíveis
 
-### 3. Regra Crítica A10 (Teto de Segurança)
+- `APROVADO` — nota final >= aprovado_min (70.0);
+- `APROVADO_PONTO_ATENCAO` — nota final **70.0–74.9** (regra de atenção v2.1, funciona mesmo com 1 avaliador) ou regra de discrepância entre avaliadores;
+- `REPROVADO` — abaixo do mínimo;
+- `AUSENTE` — presença não marcada na folha (nenhuma avaliação de frequências);
+- `REVISAO_PENDENTE` — casos especiais.
 
-Se o código **A10 (Falta de Controle)** for apontado em qualquer categoria, a nota daquela categoria é automaticamente limitada ao teto de **10.0**, independente de outros acertos. Esta regra prioriza a integridade física dos praticantes.
+### Consenso
 
-## 📋 Tabela de Recomendações Pedagógicas (v1.5)
+- Avaliação oficial com **3 avaliadores**; a nota final é a consenso (média) das notas dos avaliadores. Com 3 avaliadores, divergências acionam a regra de revisão (discrepância > 3.0).
 
-As recomendações são direcionadas ao **Sensei**, transformando erros em planos de ação.
+## 📊 Relatórios
 
-|     Cód     | Falha Detectada       | Peso | Threshold | Recomendação ao Sensei                                             |
-| :-----------: | :-------------------- | :--: | :-------: | :------------------------------------------------------------------- |
-| **A1** | Base Incorreta        | 1.0 |    30%    | Priorizar exercícios de fixação de base e distribuição de peso. |
-| **A2** | Execução Técnica   | 1.0 |    30%    | Revisar trajetórias e rotação de quadril/punho.                   |
-| **A3** | Movimento sem Carga   | 1.0 |    30%    | Trabalhar explosão final e ativação abdominal em grupo.           |
-| **A4** | Ausência de Kiai     | 0.5 |    30%    | Cobrar intensidade na expiração e uso do Kiai.                     |
-| **A5** | Embusen Incorreto     | 2.0 |    30%    | Revisar trajeto dos Katas (Embusen) e pontos de retorno.             |
-| **A6** | Falta de Foco         | 1.0 |    30%    | Implementar treinos de atenção visual e olhar fixo.                |
-| **A7** | Perda de Equilíbrio  | 1.0 |    30%    | Focar em fortalecimento de pernas e estabilidade.                    |
-| **A8** | Falta de Ritmo        | 0.5 |    30%    | Treinar cadência, alternando velocidade e controle.                 |
-| **A9** | Defesa Incompleta     | 1.0 |    30%    | Reforçar cobertura total e preparo do contra-ataque.                |
-| **A10** | Falta de Controle     | 2.5 |    30%    | Monitorar rigorosamente a potência e segurança.                    |
-| **A11** | Distância Inadequada | 1.0 |    30%    | Praticar noção de distância relativa no Kumite.                   |
-| **A12** | Rigidez Muscular      | 0.5 |    30%    | Introduzir rotinas de soltura e respiração diafragmática.         |
+### Sensei (por dojo/exame)
 
-## 📊 Padrão de Observabilidade (Relatórios)
+- Nota final, status, notas por quesito (mini-barras);
+- **Tabela de marcações por quesito × avaliador** com o **nome do avaliador** (não o ID) — com 3 avaliadores, 3 colunas;
+- **Observações por avaliador** separadas em **Pontos fortes (BOM!)** / **A melhorar** / **Outras**, com autoria;
+- Bloco **Notas por Quesito** (ranking) com a coluna **Nova Faixa (se aprovado)** — próxima faixa da ordem configurada em `config/faixas.json`.
 
-- **Zero Emojis:** Texto puro para evitar erros de encoding no Telegram.
-- **Espaçamento SRE:** Linhas duplas entre alunos para legibilidade mobile.
-- **Tradução In-line:** Exibe `[A1 - Base Incorreta] 5x` no bloco do aluno.
-- **Comparativo de Meta:** Exibe `[Meta: 70.0]` ao lado da nota individual.
-- **Destaques Hierárquicos:** Classificação em EXCELÊNCIA (100%), DESTAQUE (85%+) e FORÇA (75%+).
+### Master (consolidado multi-dojo)
+
+- **Desempenho por Dojo** (média, aprovação, presentes);
+- **Notas por Quesito** (ranking por aluno);
+- **Análise de Desempenho** — média por quesito, foco do treino, alunos em zona de atenção e destaque do exame;
+- **Critérios Marcados por Quesito** (% de alunos por critério, sem coluna de intensidade);
+- **Recomendações Sugeridas** por (quesito, critério) com os rótulos **Recomendação:** e **Planejamento Sugerido:** — textos distintos por quesito (ex.: Perda de Equilíbrio no Kihon ≠ no Kata), vindos de `config/recomendacoes.json["por_quesito"]`;
+- **Observações dos Avaliadores** com nome e separação por tipo.
+
+## ☁️ Distribuição no Google Drive
+
+Após gerar, o pipeline copia os relatórios para pastas **estáveis** (permissão herdada do pai):
+
+```text
+G:\Meu Drive\documentos\KarateAshi_Exames\relatorios\
+├── master\                        # acessível apenas aos mestres
+│   └── {EXAME}\relatorio_master_{EXAME}.html
+└── senseis\
+    └── {Sensei}\                  # pasta por sensei responsável (config/dojos.json)
+        └── {EXAME}\relatorio_sensei_{EXAME}_{DOJO}.html
+```
+
+- A **fronteira de permissão** fica nas pastas estáveis (`master/` e cada `senseis/{Sensei}/`): configure o compartilhamento **uma única vez** no Google Drive; os exames futuros caem dentro delas e herdam o acesso.
+- Cada sensei enxerga **apenas** a pasta do seu dojo; os mestres acessam o consolidado.
+- O script cria as subpastas automaticamente e faz **cópia** (os originais permanecem em `output/relatorios/`); o Drive precisa estar montado (ex.: `G:` no Windows).
+
+## 🖥️ Como Executar
+
+### Pré-requisitos
+
+- Python 3.9+
+- Dependências: `pip install -r requirements.txt`
+
+### Pipeline completo (a partir dos JSONs já lidos)
+
+```powershell
+python core/pipeline.py --config config --data data --output output --pasta-omr output/omr
+```
+
+### Ingestão OMR (scans)
+
+```powershell
+python tools/ingest_folhas.py        # lê os scans e gera os JSONs em output/omr
+python tools/importar_cadastro.py data/cadastro/alunos.csv   # cadastro de alunos
+```
+
+### Testes
+
+```powershell
+pytest
+```
+
+## 🧪 Qualidade
+
+- **OMR:** busca local por balões (±3 mm), leitura de QR via pyzbar, normalização A4 3508×2480, limiares calibrados (marcado/vazio), presença ausente → AUSENTE;
+- **CI:** GitHub Actions com jobs de validação de config, testes automatizados, OMR e estresse;
+- **Regressão:** funções legadas de relatório mantidas por compatibilidade com os testes.
+
+## 📌 Estado Atual e Próximos Passos
+
+- [X] OMR com leitura por busca local e QR (validação com folha em branco e preenchida);
+- [X] Pipeline v2.1 (OMR → engine → relatórios HTML → Drive por sensei);
+- [X] Relatórios do Sensei com nomes de avaliadores, observações BOM!/A melhorar e Nova Faixa;
+- [X] Relatório Master com recomendações por quesito e análise de desempenho;
+- [ ] Cadastro dos demais dojos (mínimo 5) com sensei responsável em `config/dojos.json`;
+- [ ] Validação do fluxo com os 3 avaliadores oficiais (3 colunas no Sensei e regra de discrepância);
+- [ ] Matrizes das faixas marrom e preta (hoje em `placeholder` em `config/faixas.json`).
