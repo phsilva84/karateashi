@@ -30,11 +30,20 @@ Nomes de saída (um arquivo por exame — suporta vários exames no ano):
   output/relatorios/relatorio_sensei_{EXAME}_{DOJO}.html   (camada Sensei)
   output/relatorios/relatorio_master_{EXAME}.html          (master consolidado)
 
-Upload ao Drive (v2.1): após gerar, copia para
-  <GD>/documentos/KarateAshi_Exames/relatorios/{EXAME}/master/
-  <GD>/documentos/KarateAshi_Exames/relatorios/{EXAME}/senseis/{Sensei}/
-Cada sensei vê apenas a pasta do seu dojo; a pasta 'master' fica só com os
-mestres.
+Distribuição (v2.1.1 — staging como fonte única de estrutura):
+  O pipeline monta a árvore de staging em output/distribuicao/ que ESPELHA
+  exatamente a estrutura do Google Drive:
+    output/distribuicao/master/{EXAME}/relatorio_master_{EXAME}.html
+    output/distribuicao/senseis/{Sensei}/{EXAME}/relatorio_sensei_{EXAME}_{DOJO}.html
+
+  A estrutura de pastas é definida AQUI (única fonte de verdade, derivada de
+  config/dojos.json). O "envio" (local OU CI) apenas espelha o staging:
+    - Local (G:): copia output/distribuicao/ -> G:\...\relatorios\
+    - CI (GitHub Actions): rclone copia output/distribuicao/ -> gdrive:.../relatorios/
+  Assim nunca há duas lógicas divergentes definindo o destino.
+
+  Flag --no-drive: pula a cópia local (usado no CI, onde não existe G: e o
+  rclone faz o push). A geração do staging SEMPRE acontece.
 """
 from __future__ import annotations
 
@@ -464,61 +473,80 @@ def gerar_relatorios_html(resultados: list[dict], regras: dict,
     return gerados
 
 
-# ═══ Upload automático ao Google Drive (pontos 10–11) ══════════════════════
+# ═══ Distribuição (staging como fonte única + envio local/CI) ══════════════
 
-def _enviar_relatorios_para_drive(rel_dir: Path, exame_id: str, dojo_id: str,
-                                  sensei_responsavel: str) -> bool:
-    """Copia os HTMLs gerados para o Drive com pastas ESTÁVEIS por nível."""
-    drive = (Path("G:/") / "Meu Drive" / "documentos"
-             / "KarateAshi_Exames" / "relatorios")
-    # Verifica se o Drive está montado e se a pasta-pai (KarateAshi_Exames)
-    # existe — 'relatorios' é criado automaticamente na primeira execução.
-    if not Path("G:/").exists():
-        print(f"[AVISO] Google Drive não montado em G: — upload pulado.")
-        return False
-    if not drive.parent.exists():
-        print(f"[AVISO] Pasta '{drive.parent}' não encontrada no Drive — "
-              f"crie 'KarateAshi_Exames/relatorios' (ou rode com o Drive "
-              f"sincronizado). Upload pulado.")
-        return False
-    drive.mkdir(parents=True, exist_ok=True)
+def _criar_staging_distribuicao(rel_dir: Path, exame_id: str, dojo_id: str,
+                                sensei_responsavel: str) -> Path:
+    """Monta a árvore de staging em output/distribuicao/ espelhando o Drive.
 
+    Estrutura (fonte ÚNICA de verdade — derivada de config/dojos.json):
+      output/distribuicao/master/{EXAME}/relatorio_master_{EXAME}.html
+      output/distribuicao/senseis/{Sensei}/{EXAME}/relatorio_sensei_{EXAME}_{DOJO}.html
+
+    O envio (local via G: ou CI via rclone) apenas espelha esta árvore — nunca
+    reinventa o destino. Assim a estrutura é definida num único lugar.
+    """
     ex = _slug(exame_id)
     dj = _slug(dojo_id, "sem_dojo")
     sensei = _slug(sensei_responsavel or dojo_id, "sem_sensei")
-    ...  # restante igual (origem_sensei/origem_master/dest_sensei/dest_master)
+
+    staging = rel_dir.parent / "distribuicao"
+    # Limpa staging anterior para não acumular exames antigos
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True, exist_ok=True)
 
     origem_sensei = rel_dir / f"relatorio_sensei_{ex}_{dj}.html"
     origem_master = rel_dir / f"relatorio_master_{ex}.html"
 
-    # Pastas de permissão ESTÁVEIS (crie e compartilhe UMA vez):
-    #   relatorios/master/  e  relatorios/senseis/{Sensei}/
-    dest_sensei = drive / "senseis" / sensei / ex
-    dest_master = drive / "master" / ex
-
-    ok = True
     if origem_sensei.exists():
-        dest_sensei.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(origem_sensei, dest_sensei / origem_sensei.name)
-        print(f"[DRIVE] sensei → {dest_sensei / origem_sensei.name}")
-    else:
-        print(f"[AVISO] {origem_sensei.name} não encontrado (upload sensei pulado).")
-        ok = False
+        dest = staging / "senseis" / sensei / ex
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origem_sensei, dest / origem_sensei.name)
+        print(f"[STAGING] sensei → {dest / origem_sensei.name}")
 
     if origem_master.exists():
-        dest_master.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(origem_master, dest_master / origem_master.name)
-        print(f"[DRIVE] master → {dest_master / origem_master.name}")
-    else:
-        print(f"[AVISO] {origem_master.name} não encontrado (upload master pulado).")
-        ok = False
+        dest = staging / "master" / ex
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origem_master, dest / origem_master.name)
+        print(f"[STAGING] master → {dest / origem_master.name}")
 
-    return ok
+    return staging
+
+
+def _enviar_staging_para_drive(staging: Path, rel_dir: Path) -> bool:
+    """Espelha o staging para o Drive local montado em G: (fallback manual).
+
+    No CI (GitHub Actions) este passo é pulado (--no-drive); o rclone copia
+    output/distribuicao/ direto para o Drive. Aqui o G: só existe quando o
+    usuário roda localmente com o Google Drive for Desktop montado.
+    """
+    drive = (Path("G:/") / "Meu Drive" / "documentos"
+             / "KarateAshi_Exames" / "relatorios")
+    if not Path("G:/").exists():
+        print(f"[AVISO] Google Drive não montado em G: — upload local pulado.")
+        return False
+    if not drive.parent.exists():
+        print(f"[AVISO] Pasta '{drive.parent}' não encontrada no Drive — "
+              f"crie 'KarateAshi_Exames/relatorios' (ou rode com o Drive "
+              f"sincronizado). Upload local pulado.")
+        return False
+    drive.mkdir(parents=True, exist_ok=True)
+    # Espelha a árvore de staging para o Drive (preserva master/ e senseis/{Sensei}/)
+    for origem in sorted(staging.rglob("*")):
+        if origem.is_file():
+            rel = origem.relative_to(staging)
+            dest = drive / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(origem, dest)
+            print(f"[DRIVE] {dest}")
+    return True
+
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI: python core/pipeline.py --config config --data data --output output [--pasta-omr ...]"""
+    """CLI: python core/pipeline.py --config config --data data --output output [--pasta-omr ...] [--no-drive]"""
     ap = argparse.ArgumentParser(
-        description="Pipeline Karate-Ashi v2.0 (OMR → engine → relatórios)")
+        description="Pipeline Karate-Ashi v2.1 (OMR → engine → relatórios)")
     ap.add_argument("--config", type=Path, default=Path("config"),
                     help="pasta de configuração (config/)")
     ap.add_argument("--data", type=Path, default=Path("data"),
@@ -527,6 +555,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="pasta de saída (output/)")
     ap.add_argument("--pasta-omr", type=Path, default=None,
                     help="pasta com os JSONs do OMR (padrão: <output>/json)")
+    ap.add_argument("--no-drive", action="store_true",
+                    help="pula o upload local ao Drive (CI faz o push via rclone)")
     args = ap.parse_args(argv)
 
     cfg = args.config
@@ -562,9 +592,16 @@ def main(argv: list[str] | None = None) -> int:
                           nomes=nomes, sensei_responsavel=sensei_responsavel,
                           avaliadores_map=avaliadores)
 
-    # Upload automático ao Drive (pontos 10–11)
-    _enviar_relatorios_para_drive(rel_dir, exame_id, dojo_id,
-                                  sensei_responsavel)
+    # Distribuição: SEMPRE monta o staging (fonte única da estrutura).
+    staging = _criar_staging_distribuicao(rel_dir, exame_id, dojo_id,
+                                          sensei_responsavel)
+    print(f"[OK] Staging de distribuição: {staging}")
+
+    # Upload local (G:) — pulado no CI via --no-drive (rclone faz o push).
+    if not args.no_drive:
+        _enviar_staging_para_drive(staging, rel_dir)
+    else:
+        print("[INFO] --no-drive: upload local pulado (CI fará o push via rclone).")
     return 0
 
 

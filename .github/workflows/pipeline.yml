@@ -1,92 +1,69 @@
-name: Pipeline Karate-Ashi v2.0 (OMR + Engine + Relatórios)
+name: Pipeline Karate-Ashi v2.1 (OMR + Engine + Relatórios → Drive)
 
 on:
   schedule:
-    - cron: "0 22 * * *"   # 22:00 UTC = 19:00 em Brasília (horário de verão) / 18:00 (padrão)
-  workflow_dispatch:       # execução manual (testes e exames especiais)
+    - cron: "0 22 * * *"   # diário 22:00 UTC = 19:00 Brasília
+  workflow_dispatch:       # disparo manual de 1 clique (sob demanda)
 
-# Impede dois runs simultâneos — evita corrida de escrita no Google Drive.
 concurrency:
   group: karate-ashi-pipeline
   cancel-in-progress: false
 
 jobs:
-  # ── Job 1: baixa gabaritos e cadastros do Drive ─────────────────────
   sincronizar-entrada:
-    name: Sincronizar Gabaritos e Cadastros (rclone)
+    name: Sincronizar Cadastros (rclone)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Instalar rclone (binário)
+      - name: Instalar rclone
         run: |
-          RCLONE_VERSION=1.68.2
-          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          curl -sSLo rclone.zip "https://downloads.rclone.org/v1.68.2/rclone-v1.68.2-linux-amd64.zip"
           unzip -o rclone.zip
-          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
+          sudo cp "rclone-v1.68.2-linux-amd64/rclone" /usr/local/bin/
           sudo chmod +x /usr/local/bin/rclone
-          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
-          rclone version
-
+          rm -rf rclone.zip rclone-v1.68.2-linux-amd64
       - name: Configurar rclone
         run: |
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
-
-      - name: Pull gabaritos e cadastros do Drive
+      - name: Pull cadastros do Drive
         run: |
-          rclone copy "gdrive:gabaritos" data/gabaritos/ --transfers 8
-          rclone copy "gdrive:cadastro" data/cadastro/ --transfers 8
-
+          rclone copy "gdrive:cadastro" data/cadastro/ --transfers 8 || true
       - name: Upload artefato de entrada
         uses: actions/upload-artifact@v4
         with:
           name: dados-entrada
-          path: |
-            data/gabaritos/
-            data/cadastro/
+          path: data/cadastro/
           if-no-files-found: warn
 
-  # ── Job 1.5: ingestão OMR (scanner + fotos) ─────────────────────────
   ingestao-omr:
-    name: Ingestão OMR (scanner + fotos)
+    name: Ingestão OMR (scans do Drive)
     runs-on: ubuntu-latest
     needs: sincronizar-entrada
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Instalar dependências de sistema (libzbar)
+      - name: Instalar libzbar
         run: sudo apt-get update && sudo apt-get install -y libzbar0
-
       - name: Instalar dependências
         run: pip install -r requirements.txt
-
-      - name: Instalar rclone (binário)
+      - name: Instalar e configurar rclone
         run: |
-          RCLONE_VERSION=1.68.2
-          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          curl -sSLo rclone.zip "https://downloads.rclone.org/v1.68.2/rclone-v1.68.2-linux-amd64.zip"
           unzip -o rclone.zip
-          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
+          sudo cp "rclone-v1.68.2-linux-amd64/rclone" /usr/local/bin/
           sudo chmod +x /usr/local/bin/rclone
-          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
-          rclone version
-
-      - name: Configurar rclone
-        run: |
+          rm -rf rclone.zip rclone-v1.68.2-linux-amd64
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
-
       - name: Baixar scans do Drive
         run: |
           mkdir -p data/scans
           rclone copy "gdrive:scans" data/scans/ --transfers 8 || true
-
       - name: Ingerir folhas (OMR)
         run: |
           export PYTHONPATH=${PYTHONPATH:-}:.
@@ -101,103 +78,66 @@ jobs:
             echo "[ERRO] Ingestão falhou (código $rc)."
             exit "$rc"
           fi
-
-      - name: Upload JSONs de OMR
+      - name: Upload JSONs OMR
         uses: actions/upload-artifact@v4
         with:
           name: folhas-omr
           path: output/omr/
           if-no-files-found: warn
 
-  # ── Job 2: OMR → engine → relatórios (3 camadas, por Dojo) ─────────
   processar-exame:
     name: Processar Exame (OMR → Engine → Relatórios)
     runs-on: ubuntu-latest
     needs: [sincronizar-entrada, ingestao-omr]
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Instalar dependências
         run: pip install -r requirements.txt
-
       - name: Baixar dados de entrada
         uses: actions/download-artifact@v4
         with:
           name: dados-entrada
-
       - name: Baixar folhas OMR
         uses: actions/download-artifact@v4
         with:
           name: folhas-omr
-        continue-on-error: true   # tolera run sem scans (artefato inexistente)
-
-      - name: Executar pipeline de processamento
+          continue-on-error: true
+      - name: Executar pipeline (gera relatórios + staging; sem upload local)
         run: |
           export PYTHONPATH=${PYTHONPATH:-}:.
-          python core/pipeline.py --config config --data data --output output
-
-      - name: Upload relatórios gerados
+          python core/pipeline.py --config config --data data --output output --no-drive
+      - name: Upload relatórios + staging
         uses: actions/upload-artifact@v4
         with:
-          name: relatorios
-          path: output/
-          if-no-files-found: warn   # run sem dados não gera output/ — avisa, não falha
+          name: distribuicao
+          path: output/distribuicao/
+          if-no-files-found: warn
 
-  # ── Job 3: Telegram (grupo do Dojo / canal dos Mestres) + Drive ─────
   distribuir:
-    name: Distribuir Relatórios (Telegram + Drive)
+    name: Distribuir Relatórios ao Google Drive (espelha staging)
     runs-on: ubuntu-latest
     needs: processar-exame
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Instalar dependências
-        run: pip install -r requirements.txt
-
-      - name: Baixar relatórios
-        uses: actions/download-artifact@v4
-        with:
-          name: relatorios
-        continue-on-error: true   # tolera run sem relatórios (artefato inexistente)
-
-      - name: Instalar rclone (binário)
+      - name: Instalar e configurar rclone
         run: |
-          RCLONE_VERSION=1.68.2
-          curl -sSLo rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          curl -sSLo rclone.zip "https://downloads.rclone.org/v1.68.2/rclone-v1.68.2-linux-amd64.zip"
           unzip -o rclone.zip
-          sudo cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/
+          sudo cp "rclone-v1.68.2-linux-amd64/rclone" /usr/local/bin/
           sudo chmod +x /usr/local/bin/rclone
-          rm -rf rclone.zip "rclone-v${RCLONE_VERSION}-linux-amd64"
-          rclone version
-
-      - name: Configurar rclone
-        run: |
+          rm -rf rclone.zip rclone-v1.68.2-linux-amd64
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
-
-      # Estado de idempotência vem do Drive (persiste entre runs)
-      - name: Baixar estado de notificação do Drive
+      - name: Baixar staging
+        uses: actions/download-artifact@v4
+        with:
+          name: distribuicao
+          continue-on-error: true
+      - name: Enviar ao Drive (espelha a árvore de staging)
         run: |
-          rclone copy "gdrive:estado/.ka-notify-state.json" . --transfers 4 || true
-
-      - name: Enviar Telegram e sincronizar Drive
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          export PYTHONPATH=${PYTHONPATH:-}:.
-          python core/notifications.py --output output --config config
-
-      # Devolve o estado atualizado para o próximo run
-      - name: Persistir estado de notificação no Drive
-        run: |
-          rclone copy .ka-notify-state.json "gdrive:estado" --transfers 4 || true
+          rclone copy output/distribuicao/ \
+            "gdrive:documentos/KarateAshi_Exames/relatorios/" --transfers 4 || true
