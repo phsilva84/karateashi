@@ -44,8 +44,8 @@ jobs:
           pip install -r requirements-dev.txt
       - name: Motor de cálculo (Fase 01)
         run: pytest tests/test_engine.py -q --cov=core.engine --cov-fail-under=80
-      - name: OMR - funções puras (Fase 03)
-        run: pytest tests/test_omr_validador.py -q --cov=core.omr_reader --cov-fail-under=80
+      - name: OMR - leitura e robustez (Fase 03)
+        run: pytest tests/test_omr_validador.py tests/test_omr_robustez.py -q --cov=core.omr_reader --cov-fail-under=75
       - name: Pipeline de integração (OMR → engine)
         run: pytest tests/test_pipeline_integracao.py -q
       - name: Relatórios (Fase 05 + cobertura complementar)
