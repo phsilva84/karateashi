@@ -5,7 +5,8 @@
       "dojo_id": "D01",
       "data_exame": "2026-10-03",
       "avaliadores": ["S02", "S03", "S04"],
-      "status": "agendado"
+      "status": "agendado",
+      "gerar_folhas": true
     },
     {
       "id": "EXA-D02-2026-10",

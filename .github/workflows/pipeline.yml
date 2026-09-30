@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Instalar rclone
         run: |
           curl -sSLo rclone.zip "https://downloads.rclone.org/v1.68.2/rclone-v1.68.2-linux-amd64.zip"
@@ -22,14 +23,17 @@ jobs:
           sudo cp "rclone-v1.68.2-linux-amd64/rclone" /usr/local/bin/
           sudo chmod +x /usr/local/bin/rclone
           rm -rf rclone.zip rclone-v1.68.2-linux-amd64
+
       - name: Configurar rclone
         run: |
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
+
       - name: Pull cadastros do Drive
         run: |
           rclone copy "gdrive:cadastro" data/cadastro/ --transfers 8 || true
+
       - name: Upload artefato de entrada
         uses: actions/upload-artifact@v4
         with:
@@ -45,13 +49,17 @@ jobs:
       tem_folhas: ${{ steps.ingest.outputs.tem_folhas }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Instalar libzbar
         run: sudo apt-get update && sudo apt-get install -y libzbar0
+
       - name: Instalar dependências
         run: pip install -r requirements.txt
+
       - name: Instalar e configurar rclone
         run: |
           curl -sSLo rclone.zip "https://downloads.rclone.org/v1.68.2/rclone-v1.68.2-linux-amd64.zip"
@@ -62,35 +70,49 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
+
       - name: Baixar cadastro (artefato de entrada)
         uses: actions/download-artifact@v4
         with:
           name: dados-entrada
           path: data/cadastro/
+
       - name: Baixar scans do Drive
         run: |
           mkdir -p data/scans
           rclone copy "gdrive:scans" data/scans/ --transfers 8 || true
+
       - name: Gerar coordenadas das folhas (pre_exame)
         run: |
           export PYTHONPATH=${PYTHONPATH:-}:.
           python - <<'PY'
-          import json, subprocess, sys
+          import json
+          import subprocess
+          import sys
+
           exames = json.load(open('data/exames.json', encoding='utf-8')).get('exames', [])
           cadastro = json.load(open('data/cadastro/alunos.json', encoding='utf-8'))
           por_dojo = {}
-          for a in cadastro.get('alunos', []):
-              did = a.get('dojo_id')
-              por_dojo[did] = por_dojo.get(did, 0) + 1
+          for aluno in cadastro.get('alunos', []):
+              dojo = aluno.get('dojo_id')
+              por_dojo[dojo] = por_dojo.get(dojo, 0) + 1
+
           for e in exames:
-              if not e.get("gerar_folhas", True):
-              print(f"[INFO] {e['id']}: gerar_folhas=false — pulando")
-              continue
+              if not e.get('gerar_folhas', True):
+                  print(f"[INFO] {e['id']}: gerar_folhas=false, pulando")
+                  continue
+              dojo = e.get('dojo_id')
+              if por_dojo.get(dojo, 0) == 0:
+                  print(f"[INFO] {e['id']}: sem alunos do {dojo} no cadastro, pulando")
+                  continue
               print(f"[INFO] Gerando coordenadas para {e['id']}")
-              subprocess.run([sys.executable, 'tools/pre_exame.py',
-                              '--exame', e['id'], '--saida', 'output/pre_exame'],
-                             check=True)
+              subprocess.run(
+                  [sys.executable, 'tools/pre_exame.py', '--exame', e['id'],
+                   '--saida', 'output/pre_exame'],
+                  check=True,
+              )
           PY
+
       - name: Ingerir folhas (OMR)
         id: ingest
         run: |
@@ -111,9 +133,11 @@ jobs:
           else
             echo "tem_folhas=false" >> "$GITHUB_OUTPUT"
           fi
+
       - name: Mover scans processados (idempotência persistente no Drive)
         run: |
           rclone move data/scans/ "gdrive:scans/processados/" --transfers 8 || true
+
       - name: Upload JSONs OMR
         if: steps.ingest.outputs.tem_folhas == 'true'
         uses: actions/upload-artifact@v4
@@ -129,26 +153,32 @@ jobs:
     if: needs.ingestao-omr.outputs.tem_folhas == 'true'
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Instalar dependências
         run: pip install -r requirements.txt
+
       - name: Baixar dados de entrada
         uses: actions/download-artifact@v4
         with:
           name: dados-entrada
           path: data/cadastro/
+
       - name: Baixar folhas OMR
         uses: actions/download-artifact@v4
         with:
           name: folhas-omr
           path: output/omr/
+
       - name: Executar pipeline (gera relatórios + staging; sem upload local)
         run: |
           export PYTHONPATH=${PYTHONPATH:-}:.
           python core/pipeline.py --config config --data data --output output \
             --pasta-omr output/omr --no-drive
+
       - name: Upload relatórios + staging
         uses: actions/upload-artifact@v4
         with:
@@ -162,6 +192,7 @@ jobs:
     needs: processar-exame
     steps:
       - uses: actions/checkout@v4
+
       - name: Instalar e configurar rclone
         run: |
           curl -sSLo rclone.zip "https://downloads.rclone.org/v1.68.2/rclone-v1.68.2-linux-amd64.zip"
@@ -172,11 +203,13 @@ jobs:
           mkdir -p ~/.config/rclone
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
+
       - name: Baixar staging
         uses: actions/download-artifact@v4
         with:
           name: distribuicao
           path: output/distribuicao/
+
       - name: Enviar ao Drive (espelha a árvore de staging)
         run: |
           rclone copy output/distribuicao/ \
