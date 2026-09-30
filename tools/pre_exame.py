@@ -463,7 +463,11 @@ def main():
     gerados = _gerar_folhas(args.exame, alunos, avaliadores, dojo_id,
                             matriz, args.saida)
     for p in gerados:
-        print(f"  gerado: {p.relative_to(RAIZ)}")
+        try:
+           rel = p.resolve().relative_to(RAIZ)
+        except ValueError:
+           rel = p
+    print(f"  gerado: {rel}")
     if args.validar:
         for p in gerados:
             if p.suffix == ".json":
