@@ -72,7 +72,7 @@ jobs:
           chmod 600 ~/.config/rclone/rclone.conf
 
       - name: Raiz efetiva do remote (diagnóstico)
-        run: rclone lsd gdrive:
+        run: rclone lsd "gdrive:"
 
       - name: Baixar scans do Drive (sem a subpasta processados)
         run: |
@@ -210,7 +210,7 @@ jobs:
           chmod 600 ~/.config/rclone/rclone.conf
 
       - name: Raiz efetiva do remote (diagnóstico)
-        run: rclone lsd gdrive:
+        run: rclone lsd "gdrive:"
 
       - name: Baixar staging
         uses: actions/download-artifact@v4
