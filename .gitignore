@@ -5,7 +5,7 @@ env/
 
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
@@ -27,6 +27,4 @@ data/processed/
 
 # Logs
 *.log
-__pycache__/
-*.pyc
 .ka-notify-state.json
