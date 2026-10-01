@@ -71,6 +71,9 @@ jobs:
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
+      - name: Raiz efetiva do remote (diagnóstico)
+        run: rclone lsd gdrive:
+
       - name: Baixar scans do Drive (sem a subpasta processados)
         run: |
           mkdir -p data/scans
@@ -206,13 +209,15 @@ jobs:
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
-      - name: Diagnóstico do remote (raiz efetiva)
+      - name: Raiz efetiva do remote (diagnóstico)
         run: rclone lsd gdrive:
+
       - name: Baixar staging
         uses: actions/download-artifact@v4
         with:
           name: distribuicao
           path: output/distribuicao/
+
       - name: Enviar ao Drive (espelha a árvore de staging)
         run: |
           rclone copy output/distribuicao/ \
