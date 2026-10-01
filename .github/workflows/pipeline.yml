@@ -71,16 +71,17 @@ jobs:
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
+      - name: Baixar scans do Drive (sem a subpasta processados)
+        run: |
+          mkdir -p data/scans
+          rclone copy "gdrive:scans" data/scans/ \
+            --exclude "processados/**" --transfers 8 || true
+
       - name: Baixar cadastro (artefato de entrada)
         uses: actions/download-artifact@v4
         with:
           name: dados-entrada
           path: data/cadastro/
-
-      - name: Baixar scans do Drive
-        run: |
-          mkdir -p data/scans
-          rclone copy "gdrive:scans" data/scans/ --transfers 8 || true
 
       - name: Gerar coordenadas das folhas (pre_exame)
         run: |
@@ -119,7 +120,7 @@ jobs:
           export PYTHONPATH=${PYTHONPATH:-}:.
           set +e
           python tools/ingest_folhas.py --entrada data/scans --config config \
-            --saida output/omr --arquivo data/scans/processados --origem scanner
+            --saida output/omr --arquivo output/scans_processados --origem scanner
           rc=$?
           set -e
           if [ "$rc" -eq 3 ]; then
@@ -136,8 +137,8 @@ jobs:
 
       - name: Mover scans processados (idempotência persistente no Drive)
         run: |
-          rclone move data/scans/ "gdrive:scans/processados/" \
-            --include "*.{png,jpg,jpeg,pdf,tif,tiff,bmp,webp}" --transfers 8 || true
+          rclone move output/scans_processados/ "gdrive:scans/processados/" \
+            --transfers 8 || true
 
       - name: Upload JSONs OMR
         if: steps.ingest.outputs.tem_folhas == 'true'
