@@ -28,3 +28,11 @@ data/processed/
 # Logs
 *.log
 .ka-notify-state.json
+
+folhas_impressao/
+
+data/cadastro/
+
+backup_legado_*/
+
+folhas_impressao/
