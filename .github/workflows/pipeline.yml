@@ -206,13 +206,14 @@ jobs:
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
           chmod 600 ~/.config/rclone/rclone.conf
 
+      - name: Diagnóstico do remote (raiz efetiva)
+        run: rclone lsd gdrive:
       - name: Baixar staging
         uses: actions/download-artifact@v4
         with:
           name: distribuicao
           path: output/distribuicao/
-
       - name: Enviar ao Drive (espelha a árvore de staging)
         run: |
           rclone copy output/distribuicao/ \
-            "gdrive:documentos/KarateAshi_Exames/relatorios/" --transfers 4 || true
+            "gdrive:relatorios/" --transfers 4 || true
