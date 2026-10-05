@@ -1,4 +1,4 @@
-"""core/pipeline.py — Integração OMR → engine → relatórios (Karate-Ashi v2.2).
+"""core/pipeline.py — Integração OMR → engine → relatórios (Karate-Ashi v2.3).
 Orquestra: lê os JSONs gerados pelo ingest_folhas (OMR), agrega as folhas por
 aluno (múltiplos avaliadores), chama o motor (core.engine.processa_aluno) por
 faixa e gera os relatórios visuais (HTML) por exame/finalidade.
@@ -6,27 +6,28 @@ faixa e gera os relatórios visuais (HTML) por exame/finalidade.
 Semântica de frequências:
   - NOTAS (modo_presenca=True, padrão): qualquer balão marcado conta como 1
     por critério — um avaliador contribui no máx. 1 ocorrência por critério.
-    Comportamento validado pelos testes (interpretação por presença).
   - RELATÓRIOS (modo_presenca=False): o pipeline também grava as frequências
     REAIS (escala 1 a 5) por critério e por avaliador
-    (resultado["frequencias_reais"], resultado["frequencias_por_avaliador"]),
-    usadas pelo relatório Master (intensidade média) e pela tabela de
-    marcações do Sensei.
+    (resultado["frequencias_reais"], resultado["frequencias_por_avaliador"]).
 
-Regra de atenção (v2.1, decisão do usuário):
-  - Mantém a regra atual de discrepância entre avaliadores (vindo do engine);
-  - Adiciona: nota final 70.0–74.9 → APROVADO_PONTO_ATENCAO (mesmo com 1
-    avaliador, onde não existe divergência para disparar a regra antiga).
+Regra de atenção (v2.1): nota final 70.0–74.9 → APROVADO_PONTO_ATENCAO.
 
-v2.2 (novo):
-  - Relatório INDIVIDUAL por aluno (um HTML por aluno, imprimível/exportável
-    como PDF, SEM citar avaliadores) gerado no MESMO diretório do relatório
-    do exame (output/relatorios) e copiado para o staging do Drive em
-    senseis/{Sensei}/{EXAME}/.
+v2.2 (novo): relatório INDIVIDUAL por aluno (HTML imprimível/PDF, SEM citar
+avaliadores) no MESMO diretório do relatório do exame + copiado para o staging
+do Drive em senseis/{Sensei}/{EXAME}/.
+
+v2.3 (correções de integridade — revisão pós-CI):
+  - Fix 1 (dedup): re-scans da MESMA folha física (mesmo aluno+avaliador) eram
+    contados como avaliadores separados, inflando a média e duplicando colunas
+    no relatório. Agora mantém 1 scan por (aluno, avaliador): o MAIS RECENTE
+    (nome do arquivo imgYYYYMMDD_HHMMSS = ordem cronológica).
+  - Fix 2 (presença por consenso): presença é física. Se QUALQUER avaliador
+    marcou AUSENTE, o aluno não é avaliado — vira AUSENTE (se todos) ou
+    REVISAO_PENDENTE (se divergente), nunca APROVADO com presença falsa.
 
 Presença: folha com presença AUSENTE → aluno AUSENTE, sem avaliar frequências.
 Nomes: relatórios usam o nome COMPLETO (data/cadastro/alunos.json). As FOLHAS
-usam abreviar_nome() (ex.: "Pedro J. Silva") por causa do espaço limitado.
+usam abreviar_nome() por causa do espaço limitado.
 Avaliadores: id -> nome via data/cadastro/avaliadores.json ou
 config/avaliadores.json (S02 -> Sensei Fabio, etc.).
 
@@ -45,7 +46,6 @@ Distribuição (v2.1.1 — staging como fonte única de estrutura):
   config/dojos.json). O "envio" (local OU CI) apenas espelha o staging:
     - Local (G:): copia output/distribuicao/ -> G:\\...\\relatorios\\
     - CI (GitHub Actions): rclone copia output/distribuicao/ -> gdrive:.../relatorios/
-  Assim nunca há duas lógicas divergentes definindo o destino.
   Flag --no-drive: pula a cópia local (usado no CI, onde não existe G: e o
   rclone faz o push). A geração do staging SEMPRE acontece.
 """
@@ -136,14 +136,35 @@ def converter_frequencias_omr(folha: dict, matriz_faixa: dict,
 
 
 def carregar_jsons_omr(pasta_omr: Path) -> list[dict]:
-    """Lê todos os JSONs de folhas gerados pelo ingest_folhas."""
+    """Lê todos os JSONs de folhas gerados pelo ingest_folhas.
+    Anexa '_arquivo' (nome do arquivo) para permitir ordenação cronológica
+    na deduplicação por avaliador (imgYYYYMMDD_HHMMSS = ordem do scan)."""
     if not pasta_omr.is_dir():
         return []
-    return [
-        json.loads(p.read_text(encoding="utf-8"))
-        for p in sorted(pasta_omr.glob("*.json"))
-        if p.name != "resumo_ingestao.json"
-    ]
+    folhas = []
+    for p in sorted(pasta_omr.glob("*.json")):
+        if p.name == "resumo_ingestao.json":
+            continue
+        d = json.loads(p.read_text(encoding="utf-8"))
+        d["_arquivo"] = p.name
+        folhas.append(d)
+    return folhas
+
+
+def deduplicar_por_avaliador(folhas: list[dict]) -> list[dict]:
+    """Fix 1 — mantém 1 scan por (aluno, avaliador): o MAIS RECENTE.
+    Re-scans da mesma folha física (mesmo aluno+avaliador) eram contados como
+    avaliadores separados, inflando a média e duplicando colunas no relatório.
+    O nome do arquivo (imgYYYYMMDD_HHMMSS) é cronológico; o maior vence."""
+    melhor: dict[tuple, dict] = {}
+    for f in folhas:
+        md = f.get("metadados") or {}
+        chave = (md.get("aluno_id"),
+                 md.get("avaliador") or md.get("avaliador_id") or "?")
+        atual = melhor.get(chave)
+        if atual is None or f.get("_arquivo", "") > atual.get("_arquivo", ""):
+            melhor[chave] = f
+    return list(melhor.values())
 
 
 def agregar_por_aluno(folhas: list[dict]) -> dict[str, list[dict]]:
@@ -264,23 +285,29 @@ def _aplicar_regra_atencao(resultado: dict) -> dict:
 
 
 def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
-    """Fluxo completo: lê os JSONs do ingest, agrega por aluno e processa.
-    Aluno com TODAS as folhas AUSENTE → status AUSENTE (sem avaliar
-    frequências). Caso contrário, monta o lote e chama o motor.
+    """Fluxo completo: lê os JSONs do ingest, deduplica por avaliador,
+    agrega por aluno e processa.
+    - Fix 1: deduplica re-scans (1 por aluno+avaliador, o mais recente).
+    - Fix 2: presença por consenso — se QUALQUER avaliador marcou AUSENTE, o
+      aluno não é avaliado (AUSENTE se todos; REVISAO_PENDENTE se divergente).
     """
     folhas = carregar_jsons_omr(pasta_omr)
+    folhas = deduplicar_por_avaliador(folhas)   # Fix 1
     matriz = carregar_faixa(cfg, "branca")  # default; a faixa real vem do QR
     resultados = []
     for aluno_id, avaliadores in agregar_por_aluno(folhas).items():
         faixa = (avaliadores[0].get("metadados", {}).get("faixa")
                  or "branca").strip().lower()
-        # Presença: todas as folhas do aluno com presenca=AUSENTE → AUSENTE
-        if all((av.get("presenca") or "PRESENTE") == "AUSENTE"
-               for av in avaliadores):
+        # --- Fix 2: presença por consenso --------------------------------
+        presencas = [(av.get("presenca") or "PRESENTE") for av in avaliadores]
+        if any(p == "AUSENTE" for p in presencas):
+            # Presença é física: se QUALQUER avaliador marcou AUSENTE, não há
+            # como avaliar com segurança. Nunca vira APROVADO com presença falsa.
             resultados.append({
                 "aluno_id": aluno_id,
                 "faixa": faixa,
-                "status": "AUSENTE",
+                "status": "AUSENTE" if all(p == "AUSENTE" for p in presencas)
+                          else "REVISAO_PENDENTE",
                 "nota_final": 0.0,
                 "quesitos": {},
                 "origens": [av.get("origem") for av in avaliadores],
@@ -290,6 +317,7 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
                 "frequencias_por_avaliador": [],
                 "avaliadores_ids": [_mapear_avaliador(av, i)
                                     for i, av in enumerate(avaliadores)],
+                "incidentes": [f"presenca_divergente:{','.join(presencas)}"],
             })
             continue
         lote = montar_lote_engine(aluno_id, faixa, avaliadores, matriz)
@@ -542,7 +570,7 @@ def _enviar_staging_para_drive(staging: Path, rel_dir: Path) -> bool:
 def main(argv: list[str] | None = None) -> int:
     """CLI: python core/pipeline.py --config config --data data --output output [--pasta-omr ...] [--no-drive]"""
     ap = argparse.ArgumentParser(
-        description="Pipeline Karate-Ashi v2.2 (OMR → engine → relatórios)")
+        description="Pipeline Karate-Ashi v2.3 (OMR → engine → relatórios)")
     ap.add_argument("--config", type=Path, default=Path("config"),
                     help="pasta de configuração (config/)")
     ap.add_argument("--data", type=Path, default=Path("data"),
