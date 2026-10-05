@@ -146,6 +146,10 @@ def _parse_args() -> argparse.Namespace:
                     help="usa a ordem dos arquivos do lote para atribuir a "
                          "pagina (SÓ se os scans estiverem em ordem 1..N; "
                          "o padrao é identificar pela QR de aluno)")
+    # --- OPÇÃO A -----------------------------------------------------------
+    ap.add_argument("--aplicar-offset", action="store_true",
+                    help="Opção A: aplica o offset de calibração antes da "
+                         "busca local (default: comportamento atual)")
     return ap.parse_args()
 
 
@@ -201,10 +205,12 @@ def main() -> int:
                 # 'scanner' pula o warp (folha já plana).
                 # Página: identificada pela QR de aluno por padrão; a ordem
                 # do lote só entra com a flag explícita --assumir-ordem-lote.
+                # --- OPÇÃO A: propaga a flag para o núcleo -----------------
                 resultados = omr_reader.processar_imagem(
                     pagina, args.config, faixa=args.faixa, origem=origem,
                     pagina_por_ordem=(ordem_pagina
-                                      if args.assumir_ordem_lote else None))
+                                      if args.assumir_ordem_lote else None),
+                    aplicar_offset=args.aplicar_offset)
             except ValueError as exc:
                 falhas.append((rotulo, str(exc)))
                 paginas_ok = False
