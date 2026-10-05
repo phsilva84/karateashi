@@ -1,5 +1,4 @@
-"""core/pipeline.py — Integração OMR → engine → relatórios (Karate-Ashi v2.1).
-
+"""core/pipeline.py — Integração OMR → engine → relatórios (Karate-Ashi v2.2).
 Orquestra: lê os JSONs gerados pelo ingest_folhas (OMR), agrega as folhas por
 aluno (múltiplos avaliadores), chama o motor (core.engine.processa_aluno) por
 faixa e gera os relatórios visuais (HTML) por exame/finalidade.
@@ -19,8 +18,13 @@ Regra de atenção (v2.1, decisão do usuário):
   - Adiciona: nota final 70.0–74.9 → APROVADO_PONTO_ATENCAO (mesmo com 1
     avaliador, onde não existe divergência para disparar a regra antiga).
 
-Presença: folha com presença AUSENTE → aluno AUSENTE, sem avaliar frequências.
+v2.2 (novo):
+  - Relatório INDIVIDUAL por aluno (um HTML por aluno, imprimível/exportável
+    como PDF, SEM citar avaliadores) gerado no MESMO diretório do relatório
+    do exame (output/relatorios) e copiado para o staging do Drive em
+    senseis/{Sensei}/{EXAME}/.
 
+Presença: folha com presença AUSENTE → aluno AUSENTE, sem avaliar frequências.
 Nomes: relatórios usam o nome COMPLETO (data/cadastro/alunos.json). As FOLHAS
 usam abreviar_nome() (ex.: "Pedro J. Silva") por causa do espaço limitado.
 Avaliadores: id -> nome via data/cadastro/avaliadores.json ou
@@ -29,19 +33,19 @@ config/avaliadores.json (S02 -> Sensei Fabio, etc.).
 Nomes de saída (um arquivo por exame — suporta vários exames no ano):
   output/relatorios/relatorio_sensei_{EXAME}_{DOJO}.html   (camada Sensei)
   output/relatorios/relatorio_master_{EXAME}.html          (master consolidado)
+  output/relatorios/relatorio_individual_{ALUNO}.html      (individual por aluno)
 
 Distribuição (v2.1.1 — staging como fonte única de estrutura):
   O pipeline monta a árvore de staging em output/distribuicao/ que ESPELHA
   exatamente a estrutura do Google Drive:
     output/distribuicao/master/{EXAME}/relatorio_master_{EXAME}.html
     output/distribuicao/senseis/{Sensei}/{EXAME}/relatorio_sensei_{EXAME}_{DOJO}.html
-
+    output/distribuicao/senseis/{Sensei}/{EXAME}/relatorio_individual_{ALUNO}.html
   A estrutura de pastas é definida AQUI (única fonte de verdade, derivada de
   config/dojos.json). O "envio" (local OU CI) apenas espelha o staging:
-    - Local (G:): copia output/distribuicao/ -> G:\...\relatorios\
+    - Local (G:): copia output/distribuicao/ -> G:\\...\\relatorios\\
     - CI (GitHub Actions): rclone copia output/distribuicao/ -> gdrive:.../relatorios/
   Assim nunca há duas lógicas divergentes definindo o destino.
-
   Flag --no-drive: pula a cópia local (usado no CI, onde não existe G: e o
   rclone faz o push). A geração do staging SEMPRE acontece.
 """
@@ -64,7 +68,8 @@ if str(_RAIZ) not in sys.path:
 from core import observacoes_automaticas
 from core.config import carregar_json
 from core.engine import carregar_faixa, processa_aluno
-from core.relatorio_html import salvar_html_exame, salvar_html_master
+from core.relatorio_html import (salvar_html_exame, salvar_html_master,
+                                 salvar_individuais_exame)
 
 
 def _indice_posicional(chave: str) -> int | None:
@@ -91,7 +96,6 @@ def _nome_criterio(criterio, indice: int) -> str:
 
 def _quesitos_da_matriz(matriz: dict) -> dict:
     """Extrai o dict de quesitos da matriz de faixa.
-
     Suporta dois formatos:
       {'quesitos': {...}}   (wrapper — usado nos testes/fixtures)
       {kihon:..., kata:...} (estrutura real de config/faixas/<faixa>.json)
@@ -104,7 +108,6 @@ def _quesitos_da_matriz(matriz: dict) -> dict:
 def converter_frequencias_omr(folha: dict, matriz_faixa: dict,
                               modo_presenca: bool = True) -> dict:
     """Converte as chaves posicionais (c1..cN) do OMR em nomes de critérios.
-
     A matriz da faixa é a fonte única de interpretação: a posição N da
     leitura óptica corresponde SEMPRE ao critério N da matriz vigente.
 
@@ -154,7 +157,6 @@ def agregar_por_aluno(folhas: list[dict]) -> dict[str, list[dict]]:
 def montar_lote_engine(aluno_id: str, faixa_raw: str,
                        avaliadores: list[dict], matriz: dict) -> list[dict]:
     """Monta a lista de avaliadores no schema que o processa_aluno espera.
-
     As frequências posicionais do OMR viram nomes de critérios pela matriz
     (modo_presenca: 1 por critério por avaliador); o primeiro avaliador
     carrega o bloco 'aluno' com a faixa normalizada.
@@ -191,7 +193,6 @@ def montar_lote_engine(aluno_id: str, faixa_raw: str,
 
 def gerar_obs_automaticas_do_aluno(avaliadores: list[dict], cfg: Path) -> list[dict]:
     """Gera observações automáticas a partir das frequências do OMR.
-
     Consolida as frequências de todos os avaliadores do aluno (soma por
     critério) e aplica as regras do módulo observacoes_automaticas.
     """
@@ -252,7 +253,6 @@ def _observacoes_por_avaliador(avaliadores: list[dict]) -> list[dict]:
 
 def _aplicar_regra_atencao(resultado: dict) -> dict:
     """Regra (b) aprovada: nota final 70.0–74.9 → APROVADO_PONTO_ATENCAO.
-
     Mantém intacta a regra atual de discrepância entre avaliadores (que
     exige 3 avaliadores); esta é a rede de segurança que funciona mesmo
     com 1 avaliador.
@@ -265,7 +265,6 @@ def _aplicar_regra_atencao(resultado: dict) -> dict:
 
 def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
     """Fluxo completo: lê os JSONs do ingest, agrega por aluno e processa.
-
     Aluno com TODAS as folhas AUSENTE → status AUSENTE (sem avaliar
     frequências). Caso contrário, monta o lote e chama o motor.
     """
@@ -314,7 +313,6 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
 
 
 # ═══ Metadados do exame + relatórios visuais por finalidade ═════════════════
-
 def _slug(texto: str, padrao: str = "sem_id") -> str:
     """Sanitiza um id (exame/dojo) para uso seguro em nome de arquivo."""
     limpo = re.sub(r"[^A-Za-z0-9._-]+", "-", str(texto or "")).strip("-._")
@@ -336,7 +334,6 @@ def _extrair_metadados_exame(folhas: list[dict]) -> tuple[str, str, str]:
 
 
 # --- Cadastro (nomes de alunos e senseis responsáveis) ----------------------
-
 def _carregar_doc_cadastro(cadastro: Path, arquivo: str):
     """Carrega um JSON de cadastro de forma tolerante (ou None)."""
     p = cadastro / arquivo
@@ -350,7 +347,6 @@ def _carregar_doc_cadastro(cadastro: Path, arquivo: str):
 
 def _lista_registros(doc) -> list[dict]:
     """Normaliza um doc de cadastro em lista de registros.
-
     Aceita: lista direta, {alunos/registros/dojos/avaliadores/itens: [...]},
     ou dict de id -> registro.
     """
@@ -436,17 +432,17 @@ def gerar_relatorios_html(resultados: list[dict], regras: dict,
                           sensei_responsavel: str = "",
                           avaliadores_map: dict | None = None) -> list[Path]:
     """Gera os relatórios HTML por finalidade, com o exame no nome do arquivo.
-
     Nomes (1 arquivo por exame — suporta vários exames no ano):
       relatorio_sensei_{exame}_{dojo}.html   — camada Sensei (individuais)
       relatorio_master_{exame}.html          — master consolidado (multi-dojo)
+      relatorio_individual_{aluno}.html      — individual por aluno (v2.2)
+    Os individuais são gerados no MESMO diretório (rel_dir) do relatório do
+    exame e SEM citar avaliadores.
     """
     rel_dir.mkdir(parents=True, exist_ok=True)
     gerados: list[Path] = []
-
     ex = _slug(exame_id)
     dj = _slug(dojo_id, "sem_dojo")
-
     p_sensei = salvar_html_exame(
         resultados, regras, recomendacoes,
         rel_dir / f"relatorio_sensei_{ex}_{dj}.html",
@@ -456,7 +452,6 @@ def gerar_relatorios_html(resultados: list[dict], regras: dict,
         avaliadores_map=avaliadores_map,
     )
     gerados.append(p_sensei)
-
     dojos = [{"dojo_id": dojo_id, "alunos": resultados}]
     p_master = salvar_html_master(
         dojos, regras, recomendacoes,
@@ -466,7 +461,12 @@ def gerar_relatorios_html(resultados: list[dict], regras: dict,
         nomes=nomes, avaliadores_map=avaliadores_map,
     )
     gerados.append(p_master)
-
+    # v2.2: relatórios individuais por aluno (mesmo diretório, sem avaliadores)
+    gerados.extend(
+        salvar_individuais_exame(resultados, rel_dir,
+                                 exame_id=exame_id, dojo_id=dojo_id,
+                                 nomes=nomes)
+    )
     print(f"[OK] Relatórios gerados ({len(gerados)}):")
     for p in gerados:
         print(f"     {p}")
@@ -474,49 +474,45 @@ def gerar_relatorios_html(resultados: list[dict], regras: dict,
 
 
 # ═══ Distribuição (staging como fonte única + envio local/CI) ══════════════
-
 def _criar_staging_distribuicao(rel_dir: Path, exame_id: str, dojo_id: str,
                                 sensei_responsavel: str) -> Path:
     """Monta a árvore de staging em output/distribuicao/ espelhando o Drive.
-
     Estrutura (fonte ÚNICA de verdade — derivada de config/dojos.json):
       output/distribuicao/master/{EXAME}/relatorio_master_{EXAME}.html
       output/distribuicao/senseis/{Sensei}/{EXAME}/relatorio_sensei_{EXAME}_{DOJO}.html
-
+      output/distribuicao/senseis/{Sensei}/{EXAME}/relatorio_individual_{ALUNO}.html
     O envio (local via G: ou CI via rclone) apenas espelha esta árvore — nunca
     reinventa o destino. Assim a estrutura é definida num único lugar.
     """
     ex = _slug(exame_id)
     dj = _slug(dojo_id, "sem_dojo")
     sensei = _slug(sensei_responsavel or dojo_id, "sem_sensei")
-
     staging = rel_dir.parent / "distribuicao"
     # Limpa staging anterior para não acumular exames antigos
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True, exist_ok=True)
-
     origem_sensei = rel_dir / f"relatorio_sensei_{ex}_{dj}.html"
     origem_master = rel_dir / f"relatorio_master_{ex}.html"
-
     if origem_sensei.exists():
         dest = staging / "senseis" / sensei / ex
         dest.mkdir(parents=True, exist_ok=True)
         shutil.copy2(origem_sensei, dest / origem_sensei.name)
         print(f"[STAGING] sensei → {dest / origem_sensei.name}")
-
+        # v2.2: individuais do exame acompanham o sensei (mesma pasta do exame)
+        for indiv in sorted(rel_dir.glob("relatorio_individual_*.html")):
+            shutil.copy2(indiv, dest / indiv.name)
+            print(f"[STAGING] individual → {dest / indiv.name}")
     if origem_master.exists():
         dest = staging / "master" / ex
         dest.mkdir(parents=True, exist_ok=True)
         shutil.copy2(origem_master, dest / origem_master.name)
         print(f"[STAGING] master → {dest / origem_master.name}")
-
     return staging
 
 
 def _enviar_staging_para_drive(staging: Path, rel_dir: Path) -> bool:
     """Espelha o staging para o Drive local montado em G: (fallback manual).
-
     No CI (GitHub Actions) este passo é pulado (--no-drive); o rclone copia
     output/distribuicao/ direto para o Drive. Aqui o G: só existe quando o
     usuário roda localmente com o Google Drive for Desktop montado.
@@ -546,7 +542,7 @@ def _enviar_staging_para_drive(staging: Path, rel_dir: Path) -> bool:
 def main(argv: list[str] | None = None) -> int:
     """CLI: python core/pipeline.py --config config --data data --output output [--pasta-omr ...] [--no-drive]"""
     ap = argparse.ArgumentParser(
-        description="Pipeline Karate-Ashi v2.1 (OMR → engine → relatórios)")
+        description="Pipeline Karate-Ashi v2.2 (OMR → engine → relatórios)")
     ap.add_argument("--config", type=Path, default=Path("config"),
                     help="pasta de configuração (config/)")
     ap.add_argument("--data", type=Path, default=Path("data"),
@@ -558,24 +554,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-drive", action="store_true",
                     help="pula o upload local ao Drive (CI faz o push via rclone)")
     args = ap.parse_args(argv)
-
     cfg = args.config
     output = args.output
     pasta_omr = args.pasta_omr or (output / "json")
     rel_dir = output / "relatorios"
     cadastro = args.data / "cadastro" if (args.data / "cadastro").is_dir() else args.data
-
     if not pasta_omr.is_dir():
         print(f"[ERRO] Pasta de JSONs OMR não encontrada: {pasta_omr}")
         return 2
-
     regras = carregar_json(cfg / "regras_gerais.json")
     recomendacoes = carregar_json(cfg / "recomendacoes.json")
-
     folhas = carregar_jsons_omr(pasta_omr)
     exame_id, dojo_id, avaliador_id = _extrair_metadados_exame(folhas)
     print(f"[INFO] Exame: {exame_id} | Dojo: {dojo_id} | Folhas: {len(folhas)}")
-
     # Nomes dos alunos + sensei responsável (config/dojos.json) + avaliadores
     nomes = _carregar_nomes(cadastro)
     senseis = _carregar_senseis_por_dojo(cfg)
@@ -583,20 +574,16 @@ def main(argv: list[str] | None = None) -> int:
     sensei_responsavel = (senseis.get(dojo_id)
                           or avaliadores.get(avaliador_id)
                           or avaliador_id or "")
-
     resultados = processar_folhas_omr(pasta_omr, cfg)
     print(f"[OK] Alunos processados: {len(resultados)}")
-
     gerar_relatorios_html(resultados, regras, recomendacoes,
                           exame_id, dojo_id, rel_dir,
                           nomes=nomes, sensei_responsavel=sensei_responsavel,
                           avaliadores_map=avaliadores)
-
     # Distribuição: SEMPRE monta o staging (fonte única da estrutura).
     staging = _criar_staging_distribuicao(rel_dir, exame_id, dojo_id,
                                           sensei_responsavel)
     print(f"[OK] Staging de distribuição: {staging}")
-
     # Upload local (G:) — pulado no CI via --no-drive (rclone faz o push).
     if not args.no_drive:
         _enviar_staging_para_drive(staging, rel_dir)
