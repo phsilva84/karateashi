@@ -1,4 +1,4 @@
-"""core/omr_reader.py — Leitura OMR por busca local (Karate-Ashi v3.27.1).
+"""core/omr_reader.py — Leitura OMR por busca local (Karate-Ashi v3.27.4).
 Semântica do domínio (definida pelo usuário):
 - O avaliador marca TODOS os balões que observou (1..5 por critério);
   cada balão preenchido = 1 ocorrência do erro. 5/5 é legítimo.
@@ -12,18 +12,30 @@ Padrão rbaron/omr + OMRChecker (skill "Leitura OMR por Busca Local"):
 Calibração:
 - v3.23/v3.24: (1) seed por QR (dx); (2) alinhamento vertical por
   DESLOCAMENTO GLOBAL; (3) v3.24: dy da PÁGINA por VOTO MAJORITÁRIO.
-- v3.27 (evidência do scan img20261004_00471691): seed do QR dava dy ~+3mm
-  ESPÚRIO; a grade dava ~-0,4mm (verdade visual). FIX: a grade vence SEMPRE
-  que |dy_grade| <= meio pitch (2,45mm); seed do QR vale APENAS para dx.
+- v3.27 (scan img20261004_00471691): seed do QR dava dy ~+3mm ESPÚRIO;
+  a grade dava ~-0,4mm (verdade visual). FIX: grade vence quando
+  |dy_grade| <= meio pitch (2,45mm); seed do QR vale APENAS para dx.
   PRESENÇA: removida a varredura cega (gerava falso PRESENTE na W06).
-- v3.27.1 (diagnóstico dos balões W07-S04/W01-S02/W08-S02): os 3 balões que
-  faltavam liam taxa=0.000 EXATO — marca presente na verdade manual, mas FORA
-  do centrinho medido pelo RECUO 0.65 (raio 0.35r). FIX: a FREQUÊNCIA volta
-  a medir o INTERIOR padrão (recuo 0.20, raio 0.80r — spec original). A
-  PRESENÇA continua estrita (RECUO 0.65) para não regredir W06.
-  NOVIDADES: version stamp (omr_reader_version) em todo resultado + incidente
-  'ausencia_com_marcas:N' quando um AUSENTE tem balões de frequência marcados
-  (auditoria humana, decisão continua AUSENTE).
+- v3.27.1: (a) FREQUÊNCIA mede o interior padrão (RECUO_FREQ 0.20,
+  raio 0.80r); PRESENÇA estrita (RECUO 0.65) p/ não regredir W06;
+  (b) version stamp (omr_reader_version); (c) incidente
+  'ausencia_com_marcas:N' em AUSENTE com balões marcados.
+- v3.27.2: quando a grade é inconclusiva/ausente, dy via OFFSET POR LINHA
+  em vez de zero cego (resgatou W09 de 11162992). GREEN: golden 14/14,
+  W06 AUSENTE em todos os scans. Ficaram 4 alunos (11162992 W07/W08 e
+  11193424 W10/W11) AUSENTE porque |dy_grade| (-2,60/-2,40) > 2,205 e o
+  branch excluía a grade.
+- v3.27.3 (NÃO COMMITAR — regressão): candidatos linha->grade->seed->zero
+  REGREDIU: o candidato seed marcava o disco em folha em branco (dy viciado
+  +2,22/+3,23) -> W06 PRESENTE em 22072435 e 00471691; e o gate de 2,205
+  continuava excluindo a grade dos 4 alunos. 72 células alteradas.
+- v3.27.4 (diag_presenca em 11162992/11193424): o disco de presença REAL
+  está no dy da GRADE (-2,60/-2,40, taxa=1.000), mesmo acima do gate; em
+  22263733/22490841 a grade (-4,50/-3,20) é aliasing e a LINHA acertou
+  (golden). FIX: offset primário = regra v3.27.2; se a presença NÃO marcar
+  no primário, tenta o OUTRO candidato (linha <-> grade) SEM o gate; se
+  marcar, usa-o. SEED só vota no dx (nunca no dy). Nenhum disco nos dois ->
+  AUSENTE (W06 preservada; os re-scans ruins caem em REVISAO_PENDENTE).
 Regras: presença não marcada -> AUSENTE; módulo <= ~400 linhas.
 """
 from __future__ import annotations
@@ -37,7 +49,7 @@ import numpy as np
 from core import observacoes
 from core.config import QUESITOS, carregar_json
 
-OMR_READER_VERSION = "v3.27.1"
+OMR_READER_VERSION = "v3.27.4"
 A4_W_PX, A4_H_PX = 3508, 2480
 A4_W_MM, A4_H_MM = 297.0, 210.0
 RAZAO_MIN, RAZAO_MAX = 1.30, 1.55
@@ -424,9 +436,9 @@ def _estado_disco(cinza: np.ndarray, balao: dict, escala: float,
                   janela_mm: float = JANELA_MM) -> tuple[str, list[str]]:
     """Disco sólido no CENTRO (recuo exclui o anel; limiar ALTO).
     v3.27 — SEM varredura cega: mede apenas o disco central na posição
-    nominal (offset aplicado) ou no anel encontrado. A varredura por offsets
-    (v3.24) era a causa do falso positivo da folha em branco. Sem varredura,
-    centro limpo -> vazio -> AUSENTE.
+    pedida (offset aplicado) ou no anel encontrado. A varredura por offsets
+    (v3.24) era a causa do falso positivo da folha em branco. Centro limpo
+    -> vazio -> AUSENTE.
     """
     cx = (balao["x_mm"] + dx_mm) * escala
     cy = (balao["y_mm"] + dy_mm) * escala
@@ -584,26 +596,49 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
         for baloes in aluno.get("frequencias", {}).values():
             baloes_linha.extend(baloes)
         baloes_linha.extend(aluno.get("observacoes", {}).values())
-        # --- v3.27: prioridade do dy (fix cirúrgico sobre o v3.24) ---------
+        # --- v3.27.4: offset primário (v3.27.2) + PRESENÇA como oráculo ----
+        # V3.27.3 regrediu ao deixar o SEED (dy viciado +2,22/+3,23) votar na
+        # presença (W06 PRESENTE em folha em branco) e ao manter o gate de
+        # 2,205 excluindo a grade dos 4 alunos (grade -2,60/-2,40 real).
+        # FIX: primário = regra v3.27.2; se presença não marcar no primário,
+        # tenta o OUTRO candidato (linha <-> grade) SEM o gate; o seed só
+        # vota no dx. Nenhum disco nos dois -> AUSENTE (+ auditoria).
         if dy_grade is not None and abs(dy_grade) <= PITCH_MM * 0.45:
-            dx_l, dy_l = dx_mm, dy_grade
-        elif (dx_mm, dy_mm) != (0.0, 0.0) and (
-                abs(dx_mm) >= LIMIAR_SEED_QR_MM
-                or abs(dy_mm) >= LIMIAR_SEED_QR_MM):
-            dx_l, dy_l = dx_mm, 0.0  # seed só p/ dx (dy do seed é viciado)
+            dx_pri, dy_pri, nome_pri = dx_mm, dy_grade, "grade"
+            dx_lin, dy_lin = _offset_por_linha(cinza, baloes_linha, escala,
+                                               janela_px, dx_mm, 0.0)
+            dx_alt, dy_alt, nome_alt = dx_lin, dy_lin, "linha"
         else:
-            dx_l, dy_l = _offset_por_linha(cinza, baloes_linha, escala,
-                                           janela_px, dx_mm, dy_mm)
+            dx_lin, dy_lin = _offset_por_linha(cinza, baloes_linha, escala,
+                                               janela_px, dx_mm, 0.0)
+            if (dx_lin, dy_lin) == (dx_mm, 0.0):
+                dx_pri, dy_pri, nome_pri = dx_mm, 0.0, "linha_sem_suporte"
+            else:
+                dx_pri, dy_pri, nome_pri = dx_lin, dy_lin, "linha"
+            if dy_grade is not None:
+                dx_alt, dy_alt, nome_alt = dx_mm, dy_grade, "grade"
+            else:
+                dx_alt, dy_alt, nome_alt = dx_pri, dy_pri, nome_pri
+        dx_l, dy_l, fonte_dy = dx_pri, dy_pri, nome_pri
+        pres, inc_p = _estado_disco(cinza, aluno["presenca"], escala,
+                                    janela_px, dx_pri, dy_pri,
+                                    janela_mm=JANELA_PRESENCA_MM)
+        if pres != "marcado" and (dx_alt, dy_alt) != (dx_pri, dy_pri):
+            p2, inc2 = _estado_disco(cinza, aluno["presenca"], escala,
+                                     janela_px, dx_alt, dy_alt,
+                                     janela_mm=JANELA_PRESENCA_MM)
+            if p2 == "marcado":
+                dx_l, dy_l, fonte_dy = dx_alt, dy_alt, nome_alt
+                pres, inc_p = p2, inc2
+                incidentes.append("presenca_pelo_candidato:"
+                                  f"{fonte_dy}(dx={dx_l:.2f},dy={dy_l:.2f})")
         if (dx_l, dy_l) != (dx_mm, dy_mm):
             incidentes.append(
-                f"calibracao_offset_linha:dx={dx_l:.2f},dy={dy_l:.2f}")
+                f"calibracao_offset_linha:dx={dx_l:.2f},dy={dy_l:.2f} "
+                f"(fonte={fonte_dy})")
         if aplicar_offset and (dx_l or dy_l):
             incidentes.append(
                 f"offset_aplicado:dx={dx_l:.2f},dy={dy_l:.2f}")
-        # --- presença (v3.27 — sem varredura cega) -------------------------
-        pres, inc_p = _estado_disco(
-            cinza, aluno["presenca"], escala, janela_px, dx_l, dy_l,
-            janela_mm=JANELA_PRESENCA_MM)
         incidentes.extend(f"presenca:{i}" for i in inc_p)
         if pres != "marcado":
             # v3.27.1: auditoria — AUSENTE com balões de frequência marcados
