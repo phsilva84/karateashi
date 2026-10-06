@@ -1,4 +1,4 @@
-"""core/omr_reader.py — Leitura OMR por busca local (Karate-Ashi v3.27.4).
+"""core/omr_reader.py — Leitura OMR por busca local (Karate-Ashi v3.27.5).
 Semântica do domínio (definida pelo usuário):
 - O avaliador marca TODOS os balões que observou (1..5 por critério);
   cada balão preenchido = 1 ocorrência do erro. 5/5 é legítimo.
@@ -21,21 +21,25 @@ Calibração:
   (b) version stamp (omr_reader_version); (c) incidente
   'ausencia_com_marcas:N' em AUSENTE com balões marcados.
 - v3.27.2: quando a grade é inconclusiva/ausente, dy via OFFSET POR LINHA
-  em vez de zero cego (resgatou W09 de 11162992). GREEN: golden 14/14,
-  W06 AUSENTE em todos os scans. Ficaram 4 alunos (11162992 W07/W08 e
-  11193424 W10/W11) AUSENTE porque |dy_grade| (-2,60/-2,40) > 2,205 e o
-  branch excluía a grade.
+  em vez de zero cego (resgatou W09 de 11162992). GREEN: golden 14/14.
 - v3.27.3 (NÃO COMMITAR — regressão): candidatos linha->grade->seed->zero
-  REGREDIU: o candidato seed marcava o disco em folha em branco (dy viciado
-  +2,22/+3,23) -> W06 PRESENTE em 22072435 e 00471691; e o gate de 2,205
-  continuava excluindo a grade dos 4 alunos. 72 células alteradas.
-- v3.27.4 (diag_presenca em 11162992/11193424): o disco de presença REAL
-  está no dy da GRADE (-2,60/-2,40, taxa=1.000), mesmo acima do gate; em
-  22263733/22490841 a grade (-4,50/-3,20) é aliasing e a LINHA acertou
-  (golden). FIX: offset primário = regra v3.27.2; se a presença NÃO marcar
-  no primário, tenta o OUTRO candidato (linha <-> grade) SEM o gate; se
-  marcar, usa-o. SEED só vota no dx (nunca no dy). Nenhum disco nos dois ->
-  AUSENTE (W06 preservada; os re-scans ruins caem em REVISAO_PENDENTE).
+  REGREDIU: o seed marcava o disco em folha em branco (W06 PRESENTE) e o
+  gate de 2,205 excluía a grade dos 4 alunos. 72 células alteradas.
+- v3.27.4 (diag_presenca): o disco real está na GRADE (-2,60/-2,40) mesmo
+  acima do gate; em 22263733/22490841 a grade é aliasing e a LINHA acertou.
+  FIX: presença-oráculo linha<->grade SEM gate, seed só no dx. GREEN:
+  golden 14/14, W06 AUSENTE, 4 alunos resgatados. MAS: offset escolhido
+  POR ALUNO -> numa mesma folha rígida W07/W08 usam grade (-2,60) e W09
+  usa linha (+1,25) -> a Eloah cai UMA linha (marcação pula p/ critério
+  abaixo). Evidência visual (folhas anexadas): papel correto, erro no leitor.
+- v3.27.5 (divergência Eloah/Maya/Heloisa conferida à mão): NENHUM dy é
+  universal; o offset deve ser ÚNICO POR FOLHA, escolhido por VOTO DE
+  PRESENÇA na página inteira. Para cada candidato (linha, grade) conta-se
+  quantos alunos da página têm disco de presença marcado; vence o de MAIOR
+  contagem (desempate: menor |dy|). Esse dy único vale para TODOS os alunos
+  da folha (presença + frequências). Se um aluno só marcar presença num dy
+  divergente do consenso -> auditar (suspeito). Nenhum candidato marca nada
+  -> AUSENTE (W06 preservada). Seed do QR só vota no dx, nunca no dy.
 Regras: presença não marcada -> AUSENTE; módulo <= ~400 linhas.
 """
 from __future__ import annotations
@@ -49,7 +53,7 @@ import numpy as np
 from core import observacoes
 from core.config import QUESITOS, carregar_json
 
-OMR_READER_VERSION = "v3.27.4"
+OMR_READER_VERSION = "v3.27.5"
 A4_W_PX, A4_H_PX = 3508, 2480
 A4_W_MM, A4_H_MM = 297.0, 210.0
 RAZAO_MIN, RAZAO_MAX = 1.30, 1.55
@@ -436,9 +440,8 @@ def _estado_disco(cinza: np.ndarray, balao: dict, escala: float,
                   janela_mm: float = JANELA_MM) -> tuple[str, list[str]]:
     """Disco sólido no CENTRO (recuo exclui o anel; limiar ALTO).
     v3.27 — SEM varredura cega: mede apenas o disco central na posição
-    pedida (offset aplicado) ou no anel encontrado. A varredura por offsets
-    (v3.24) era a causa do falso positivo da folha em branco. Centro limpo
-    -> vazio -> AUSENTE.
+    pedida (offset aplicado) ou no anel encontrado. Centro limpo -> vazio
+    -> AUSENTE.
     """
     cx = (balao["x_mm"] + dx_mm) * escala
     cy = (balao["y_mm"] + dy_mm) * escala
@@ -579,6 +582,53 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
         melhor_n = max(dy_votos.values())
         empatados = [dy for dy, n in dy_votos.items() if n == melhor_n]
         dy_grade = float(min(empatados, key=abs))
+
+    # --- v3.27.5: OFFSET ÚNICO POR FOLHA por VOTO DE PRESENÇA ------------
+    # Nenhum dy é universal (grade acerta em 11162992/11193424; linha acerta
+    # em 22490841/22263733). Em vez de escolher por aluno (causa a Eloah cair
+    # uma linha quando W09 escolhe linha e W07/W08 escolhem grade na mesma
+    # folha), escolhe-se UM dy para a folha inteira: para cada candidato
+    # (linha, grade), conta-se quantos alunos da página têm disco de presença
+    # marcado; vence o de MAIOR contagem (desempate: menor |dy|). Seed do QR
+    # só vota no dx. Nenhum candidato marca nada -> AUSENTE (W06 preservada).
+    baloes_linha_folha: list[dict] = []
+    for ap in alunos:
+        baloes_linha_folha.append(ap["presenca"])
+        for baloes in ap.get("frequencias", {}).values():
+            baloes_linha_folha.extend(baloes)
+        baloes_linha_folha.extend(ap.get("observacoes", {}).values())
+    dx_linha, dy_linha = _offset_por_linha(cinza, baloes_linha_folha, escala,
+                                           janela_px, dx_mm, 0.0)
+    candidatos_folha: list[tuple[str, float, float]] = []
+    if (dx_linha, dy_linha) != (dx_mm, 0.0):
+        candidatos_folha.append(("linha", dx_linha, dy_linha))
+    if dy_grade is not None:
+        candidatos_folha.append(("grade", dx_mm, dy_grade))
+    if not candidatos_folha:
+        candidatos_folha.append(("zero", dx_mm, 0.0))
+
+    def _conta_presenca(dx_c: float, dy_c: float) -> int:
+        n = 0
+        for ap in alunos:
+            p, _ = _estado_disco(cinza, ap["presenca"], escala, janela_px,
+                                 dx_c, dy_c, janela_mm=JANELA_PRESENCA_MM)
+            if p == "marcado":
+                n += 1
+        return n
+
+    melhor_c = candidatos_folha[0]
+    melhor_n = -1
+    for nome_c, dx_c, dy_c in candidatos_folha:
+        n = _conta_presenca(dx_c, dy_c)
+        if (n > melhor_n or (n == melhor_n
+                             and abs(dy_c) < abs(melhor_c[2]))):
+            melhor_n = n
+            melhor_c = (nome_c, dx_c, dy_c)
+    dx_folha, dy_folha, fonte_dy = melhor_c[1], melhor_c[2], melhor_c[0]
+    if melhor_n <= 0:
+        # nenhum candidato achou disco em nenhum aluno -> folha sem presença
+        dx_folha, dy_folha, fonte_dy = dx_mm, 0.0, "sem_presenca"
+
     resultados = []
     for aluno in alunos:
         aluno_id = aluno["id"]
@@ -592,59 +642,22 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
         if dx_mm or dy_mm:
             incidentes.append(
                 f"calibracao_offset{fonte_off}:dx={dx_mm:.2f},dy={dy_mm:.2f}")
-        baloes_linha = [aluno["presenca"]]
-        for baloes in aluno.get("frequencias", {}).values():
-            baloes_linha.extend(baloes)
-        baloes_linha.extend(aluno.get("observacoes", {}).values())
-        # --- v3.27.4: offset primário (v3.27.2) + PRESENÇA como oráculo ----
-        # V3.27.3 regrediu ao deixar o SEED (dy viciado +2,22/+3,23) votar na
-        # presença (W06 PRESENTE em folha em branco) e ao manter o gate de
-        # 2,205 excluindo a grade dos 4 alunos (grade -2,60/-2,40 real).
-        # FIX: primário = regra v3.27.2; se presença não marcar no primário,
-        # tenta o OUTRO candidato (linha <-> grade) SEM o gate; o seed só
-        # vota no dx. Nenhum disco nos dois -> AUSENTE (+ auditoria).
-        if dy_grade is not None and abs(dy_grade) <= PITCH_MM * 0.45:
-            dx_pri, dy_pri, nome_pri = dx_mm, dy_grade, "grade"
-            dx_lin, dy_lin = _offset_por_linha(cinza, baloes_linha, escala,
-                                               janela_px, dx_mm, 0.0)
-            dx_alt, dy_alt, nome_alt = dx_lin, dy_lin, "linha"
-        else:
-            dx_lin, dy_lin = _offset_por_linha(cinza, baloes_linha, escala,
-                                               janela_px, dx_mm, 0.0)
-            if (dx_lin, dy_lin) == (dx_mm, 0.0):
-                dx_pri, dy_pri, nome_pri = dx_mm, 0.0, "linha_sem_suporte"
-            else:
-                dx_pri, dy_pri, nome_pri = dx_lin, dy_lin, "linha"
-            if dy_grade is not None:
-                dx_alt, dy_alt, nome_alt = dx_mm, dy_grade, "grade"
-            else:
-                dx_alt, dy_alt, nome_alt = dx_pri, dy_pri, nome_pri
-        dx_l, dy_l, fonte_dy = dx_pri, dy_pri, nome_pri
+        if (dx_folha, dy_folha) != (dx_mm, dy_mm):
+            incidentes.append(
+                f"calibracao_offset_linha:dx={dx_folha:.2f},dy={dy_folha:.2f} "
+                f"(fonte={fonte_dy},votos={melhor_n})")
+        if aplicar_offset and (dx_folha or dy_folha):
+            incidentes.append(
+                f"offset_aplicado:dx={dx_folha:.2f},dy={dy_folha:.2f}")
+        # presença do aluno no offset ÚNICO da folha
         pres, inc_p = _estado_disco(cinza, aluno["presenca"], escala,
-                                    janela_px, dx_pri, dy_pri,
+                                    janela_px, dx_folha, dy_folha,
                                     janela_mm=JANELA_PRESENCA_MM)
-        if pres != "marcado" and (dx_alt, dy_alt) != (dx_pri, dy_pri):
-            p2, inc2 = _estado_disco(cinza, aluno["presenca"], escala,
-                                     janela_px, dx_alt, dy_alt,
-                                     janela_mm=JANELA_PRESENCA_MM)
-            if p2 == "marcado":
-                dx_l, dy_l, fonte_dy = dx_alt, dy_alt, nome_alt
-                pres, inc_p = p2, inc2
-                incidentes.append("presenca_pelo_candidato:"
-                                  f"{fonte_dy}(dx={dx_l:.2f},dy={dy_l:.2f})")
-        if (dx_l, dy_l) != (dx_mm, dy_mm):
-            incidentes.append(
-                f"calibracao_offset_linha:dx={dx_l:.2f},dy={dy_l:.2f} "
-                f"(fonte={fonte_dy})")
-        if aplicar_offset and (dx_l or dy_l):
-            incidentes.append(
-                f"offset_aplicado:dx={dx_l:.2f},dy={dy_l:.2f}")
         incidentes.extend(f"presenca:{i}" for i in inc_p)
         if pres != "marcado":
-            # v3.27.1: auditoria — AUSENTE com balões de frequência marcados
             n_marcas = sum(
                 classificar_checkbox(*_densidade_balao(
-                    cinza, b, escala, janela_px, dx_l, dy_l)) == "marcado"
+                    cinza, b, escala, janela_px, dx_folha, dy_folha)) == "marcado"
                 for baloes in aluno.get("frequencias", {}).values()
                 for b in baloes)
             if n_marcas:
@@ -671,8 +684,8 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
             quesito, _, criterio = chave.partition("_")
             if quesito not in avaliacoes or len(baloes) != FREQ_BALOES:
                 continue
-            dens = [_densidade_balao(cinza, b, escala, janela_px, dx_l, dy_l)
-                    for b in baloes]
+            dens = [_densidade_balao(cinza, b, escala, janela_px,
+                                     dx_folha, dy_folha) for b in baloes]
             freq, inc = _frequencia(dens)
             incidentes.extend(f"{chave}:{i}" for i in inc)
             if freq > 0:
@@ -680,7 +693,7 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
         obs_marcadas = set()
         for chave, balao in aluno.get("observacoes", {}).items():
             estado, inc = _estado_disco(cinza, balao, escala, janela_px,
-                                        dx_l, dy_l, janela_mm=JANELA_MM)
+                                        dx_folha, dy_folha, janela_mm=JANELA_MM)
             incidentes.extend(f"{chave}:{i}" for i in inc)
             if estado == "marcado":
                 obs_marcadas.add(chave)
