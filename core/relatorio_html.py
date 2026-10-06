@@ -1,7 +1,6 @@
-"""core/relatorio_html.py — Relatório visual (HTML autossuficiente) do Karate-Ashi v2.1.
+"""core/relatorio_html.py — Relatório visual (HTML autossuficiente) do Karate-Ashi v2.3.
 Gera HTML com CSS embutido (sem dependências externas), pronto para preview no
 Google Drive, impressão em A4 e arquivamento.
-
 Mudanças v2.1 (revisão do usuário):
   1-2) Nome do AVALIADOR (não o ID) nas colunas de marcações e nas observações,
        via config/avaliadores.json (avaliadores_map). Com 3 avaliadores, a
@@ -18,8 +17,7 @@ Mudanças v2.1 (revisão do usuário):
        para as chaves antigas na raiz.
   9)   Master: novo bloco "Análise de Desempenho" (média por quesito + ranking,
        foco do treino, alunos em atenção e destaque do exame).
-
-Mudanças v2.2 (novo):
+Mudanças v2.2:
   10)  Relatório INDIVIDUAL por aluno (HTML dedicado p/ imprimir/exportar PDF),
        SEM citar avaliadores: nota final + status, nota por quesito, marcações
        consolidadas por critério e observações resumidas (BOM!/A melhorar/Outras).
@@ -27,17 +25,21 @@ Mudanças v2.2 (novo):
   11)  Relatório do Sensei ganha bloco "Resultado do Exame — Lista de Aprovação"
        (tabela Aluno | Faixa | Status, SEM nota e SEM ranking) para divulgação
        ao grupo de alunos/pais.
+Mudanças v2.3 (nova revisão do usuário):
+  12)  Bloco "Resultado do Exame — Lista de Aprovação" passa a exibir SOMENTE
+       alunos aprovados (APROVADO/APROVADO_PONTO_ATENCAO), SEM o subtítulo de
+       divulgação e com a coluna "Nova Faixa" (mesma progressão de faixas do
+       ranking). Serve como lista oficial de divulgação ao grupo/pais.
+  13)  Disposição dos cards de alunos do Sensei em 4 colunas (antes 2), com
+       breakpoint responsivo (2 colunas em telas médias, 1 em telas pequenas).
 """
 from __future__ import annotations
-
 import html
 import json
 from datetime import datetime
 from pathlib import Path
-
 from core.observacoes import OBS_MELHORAR, OBS_POSITIVAS
 from core.relatorios import NOME_QUESITO, gerar_relatorio_master
-
 # --- Cores ----------------------------------------------------------------
 COR_STATUS = {
     "APROVADO": ("#1a7f37", "#e6f4ea"),
@@ -53,18 +55,11 @@ COR_QUESITO = {
     "bunkai": "#b45309",
     "kumite": "#b91c1c",
 }
-
 _RAIZ = Path(__file__).resolve().parents[1]
-
-
 def _esc(t) -> str:
     return html.escape(str(t), quote=True)
-
-
 def _status_cor(status: str) -> tuple[str, str]:
     return COR_STATUS.get(status, ("#6a737d", "#eef1f4"))
-
-
 # --- Config auxiliar (avaliadores + faixas) ---------------------------------
 def _carregar_avaliadores_map() -> dict[str, str]:
     """{'S02': 'Sensei Fabio', ...} a partir de config/avaliadores.json."""
@@ -75,15 +70,12 @@ def _carregar_avaliadores_map() -> dict[str, str]:
         return {}
     return {str(a.get("id")): str(a.get("nome") or a.get("id") or "")
             for a in doc.get("avaliadores", [])}
-
-
 def _carregar_ordem_faixas() -> list[str]:
     """Ordem de progressão de faixas a partir de config/faixas.json.
     Usa a estrutura JÁ existente: 'suportadas' + 'placeholder' (nessa
     ordem). marrom/preta podem ficar habilitadas na ordem sem matriz
-    própria por enquanto — entram na coluna 'Nova Faixa (se aprovado)'
-    quando um aluno da faixa anterior for aprovado. Fallback: sequência
-    padrão.
+    própria por enquanto — entram na coluna 'Nova Faixa' quando um aluno
+    da faixa anterior for aprovado. Fallback: sequência padrão.
     """
     padrao = ["branca", "amarela", "laranja", "verde", "azul", "roxa",
               "marrom", "preta"]
@@ -96,8 +88,6 @@ def _carregar_ordem_faixas() -> list[str]:
     placeholder = [str(f).strip().lower() for f in doc.get("placeholder", [])]
     ordem = suportadas + placeholder
     return ordem or padrao
-
-
 def _nova_faixa(faixa_atual: str, status: str, ordem: list[str]) -> str:
     """Próxima faixa se APROVADO; 'Mantém faixa' se Recuperação; '—' senão."""
     if status in ("APROVADO", "APROVADO_PONTO_ATENCAO"):
@@ -112,16 +102,12 @@ def _nova_faixa(faixa_atual: str, status: str, ordem: list[str]) -> str:
     if status == "RECUPERACAO":
         return "Mantém faixa"
     return "—"
-
-
 # --- Observações (classificação BOM! / A MELHORAR) --------------------------
 _OBS_POSITIVAS_TXT = tuple(t.lower() for t in OBS_POSITIVAS.values())
 _OBS_MELHORAR_TXT = tuple(t.lower() for t in OBS_MELHORAR.values())
 _PREFIXOS_FORTES = ("boa", "bom", "otim", "ótimo", "excelente", "bem", "grande")
 _PREFIXOS_MELHORAR = ("dificuldade", "erros", "falta", "melhorar", "atenção",
                       "nervosismo", "perda", "cabeça", "mais foco", "mais carga")
-
-
 def _classificar_obs(parte: str) -> str:
     """Retorna 'fortes' | 'melhorar' | 'outras' (chaves de _separar_obs)."""
     t = parte.lower().strip()
@@ -134,8 +120,6 @@ def _classificar_obs(parte: str) -> str:
     if t.startswith(_PREFIXOS_MELHORAR):
         return "melhorar"
     return "outras"
-
-
 def _separar_obs(texto: str) -> dict[str, list[str]]:
     """Divide o texto montado em fortes / melhorar / outras."""
     grupos = {"fortes": [], "melhorar": [], "outras": []}
@@ -145,8 +129,6 @@ def _separar_obs(texto: str) -> dict[str, list[str]]:
             continue
         grupos[_classificar_obs(parte)].append(parte)
     return grupos
-
-
 def _texto_recomendacao(recomendacoes: dict, quesito: str, chave: str) -> str:
     """Recomendação por (quesito, critério) — lê 'por_quesito' com fallback.
     Se a estrutura 'por_quesito' não tiver a entrada, usa a chave antiga na
@@ -165,8 +147,6 @@ def _texto_recomendacao(recomendacoes: dict, quesito: str, chave: str) -> str:
         return (v.get("recomendacao") or v.get("motivo")
                 or v.get("texto") or "")
     return ""
-
-
 def _texto_recomendacao_detalhe(recomendacoes: dict, quesito: str,
                                 chave: str) -> tuple[str, str]:
     """(Recomendação, Planejamento Sugerido) por (quesito, critério).
@@ -187,8 +167,6 @@ def _texto_recomendacao_detalhe(recomendacoes: dict, quesito: str,
         antes, depois = texto.split("Recomendação:", 1)
         return antes.strip(), depois.strip(" ()")
     return texto, ""
-
-
 # ═══════════════════════════════ SENSEI (dojo) ═══════════════════════════════
 def _tabela_marcacoes(r: dict, avaliadores_map: dict | None) -> str:
     """Tabela de marcações: linhas = critérios, colunas = avaliadores (nome)."""
@@ -227,8 +205,6 @@ def _tabela_marcacoes(r: dict, avaliadores_map: dict | None) -> str:
             f'<tbody>{"".join(linhas)}</tbody></table></div>'
         )
     return "".join(blocos) or "<p class='vazio'>Sem critérios marcados.</p>"
-
-
 def _obs_com_autoria(r: dict, avaliadores_map: dict | None) -> str:
     """Observações dos avaliadores com nome + separação BOM! / A MELHORAR."""
     avaliadores_map = avaliadores_map or _carregar_avaliadores_map()
@@ -261,8 +237,6 @@ def _obs_com_autoria(r: dict, avaliadores_map: dict | None) -> str:
             f'<div class="obs-grupos">{"".join(partes_html)}</div></li>'
         )
     return "".join(linhas) or "<li>Sem observações.</li>"
-
-
 def _bloco_notas_quesito_sensei(resultados: list[dict], nomes: dict | None) -> str:
     """Ranking de Notas por Quesito + coluna 'Nova Faixa (se aprovado)' (ponto 4)."""
     ordem = _carregar_ordem_faixas()
@@ -292,8 +266,6 @@ def _bloco_notas_quesito_sensei(resultados: list[dict], nomes: dict | None) -> s
         <tbody>{''.join(linhas)}</tbody>
       </table>
     </section>"""
-
-
 def _card_aluno_sensei(r: dict, nomes: dict | None, avaliadores_map: dict | None) -> str:
     aluno_id = str(r.get("aluno_id", "?"))
     nome = (nomes or {}).get(aluno_id, "") or aluno_id
@@ -335,8 +307,6 @@ def _card_aluno_sensei(r: dict, nomes: dict | None, avaliadores_map: dict | None
         <ul class="obs">{obs}</ul>
       </div>
     </article>"""
-
-
 def gerar_html_exame(
     resultados: list[dict],
     regras: dict,
@@ -349,7 +319,7 @@ def gerar_html_exame(
     avaliadores_map: dict | None = None,
 ) -> str:
     """HTML do relatório do Sensei (dojo) — com ranking + nova faixa (ponto 4)
-    + Lista de Aprovação (ponto 11, sem nota/ranking)."""
+    + Lista de Aprovação (ponto 12, só aprovados, com Nova Faixa)."""
     cards = "".join(_card_aluno_sensei(r, nomes, avaliadores_map) for r in resultados)
     ranking = _bloco_notas_quesito_sensei(resultados, nomes)
     aprovacao = _bloco_lista_aprovacao(resultados, nomes)
@@ -386,7 +356,8 @@ def gerar_html_exame(
   .bloco {{ background:#fff; border-radius:12px; padding:20px; margin-top:18px; box-shadow:0 1px 3px rgba(0,0,0,.08); }}
   .bloco h2 {{ margin:0 0 12px; font-size:18px; color:#1a1a1a; }}
   .sub-bloco {{ color:#666; font-size:13px; margin:-6px 0 12px; }}
-  .alunos {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }}
+  /* v2.3: cards dos alunos em 4 colunas (antes 1fr 1fr) */
+  .alunos {{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }}
   .card {{ background:#fff; border-radius:12px; padding:18px; box-shadow:0 1px 3px rgba(0,0,0,.08); }}
   .aluno-head {{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }}
   .aluno-head h3 {{ margin:0; font-size:18px; }}
@@ -422,6 +393,8 @@ def gerar_html_exame(
   .vazio {{ color:#999; font-size:12px; }}
   @media print {{ body {{ background:#fff; }} .pagina {{ max-width:100%; padding:0; }}
                  .card, .bloco {{ box-shadow:none; break-inside:avoid; }} .capa {{ border-radius:0; }} }}
+  /* v2.3: breakpoints responsivos da grade de alunos */
+  @media (max-width:1100px) {{ .alunos {{ grid-template-columns:repeat(2,1fr); }} }}
   @media (max-width:700px) {{ .alunos, .resumo {{ grid-template-columns:1fr; }} }}
 </style>
 </head>
@@ -450,8 +423,6 @@ def gerar_html_exame(
   </div>
 </body>
 </html>"""
-
-
 def salvar_html_exame(
     resultados: list[dict],
     regras: dict,
@@ -472,8 +443,6 @@ def salvar_html_exame(
         encoding="utf-8",
     )
     return destino
-
-
 # ═══════════════════════════════ MASTER (consolidado) ═══════════════════════════════
 def _agregar_criterios(resultados: list[dict]) -> list[dict]:
     """Agrega critérios marcados: nº de alunos, % e intensidade média."""
@@ -503,15 +472,11 @@ def _agregar_criterios(resultados: list[dict]) -> list[dict]:
         })
     itens.sort(key=lambda x: (-x["count"], -x["intens"]))
     return itens
-
-
 def _agregar_recomendacoes(resultados: list[dict], recomendacoes: dict) -> list[dict]:
     itens = _agregar_criterios(resultados)
     for it in itens:
         it["texto"] = _texto_recomendacao(recomendacoes, it["quesito"], it["chave"])
     return itens
-
-
 def _bloco_marcacoes_quesito(resultados: list[dict]) -> str:
     """% de marcações dos critérios por quesito — SEM intensidade (ponto 7)."""
     itens = _agregar_criterios(resultados)
@@ -540,8 +505,6 @@ def _bloco_marcacoes_quesito(resultados: list[dict]) -> str:
       <p class="sub-bloco">% de alunos cujo avaliador marcou cada critério.</p>
       {''.join(blocos)}
     </section>"""
-
-
 def _bloco_recomendacoes_master(resultados: list[dict], recomendacoes: dict) -> str:
     """Recomendações com rótulos únicos 'Recomendação:' e 'Planejamento Sugerido:'
     por (quesito, critério) — ponto 8, sem repetição entre quesitos."""
@@ -578,8 +541,6 @@ def _bloco_recomendacoes_master(resultados: list[dict], recomendacoes: dict) -> 
       <p class="sub-bloco">Critérios de maior incidência no exame, com recomendação e planejamento para os treinos.</p>
       <ul class="recs">{''.join(linhas)}</ul>
     </section>"""
-
-
 def _bloco_analise_desempenho(resultados: list[dict], nomes: dict | None) -> str:
     """Análise de desempenho geral (ponto 9): média por quesito, foco, atenção, destaque."""
     presentes = [r for r in resultados if r.get("status") != "AUSENTE"]
@@ -632,8 +593,6 @@ def _bloco_analise_desempenho(resultados: list[dict], nomes: dict | None) -> str
         </div>
       </div>
     </section>"""
-
-
 def _bloco_notas_quesito(resultados: list[dict], nomes: dict | None) -> str:
     """Tabela de notas por quesito por aluno (master) — ranking descrescente."""
     thead = "".join(f"<th>{_esc(qn)}</th>" for qn in NOME_QUESITO.values())
@@ -659,8 +618,6 @@ def _bloco_notas_quesito(resultados: list[dict], nomes: dict | None) -> str:
         <tbody>{''.join(linhas)}</tbody>
       </table>
     </section>"""
-
-
 def _bloco_observacoes_master(resultados: list[dict], nomes: dict | None,
                               avaliadores_map: dict | None) -> str:
     """Observações dos avaliadores por aluno, com nome e separação (pontos 2–3)."""
@@ -700,8 +657,6 @@ def _bloco_observacoes_master(resultados: list[dict], nomes: dict | None,
       <h2>Observações dos Avaliadores</h2>
       {''.join(blocos)}
     </section>"""
-
-
 def gerar_html_master(resultados_dojos: list[dict], regras: dict,
                       recomendacoes: dict, titulo: str = "Relatório Master Consolidado",
                       exame_id: str = "",
@@ -814,8 +769,6 @@ def gerar_html_master(resultados_dojos: list[dict], regras: dict,
   </div>
 </body>
 </html>"""
-
-
 def salvar_html_master(resultados_dojos: list[dict], regras: dict,
                        recomendacoes: dict, destino: Path,
                        exame_id: str = "",
@@ -830,8 +783,6 @@ def salvar_html_master(resultados_dojos: list[dict], regras: dict,
         encoding="utf-8",
     )
     return destino
-
-
 # ═══════════════════════════════ v2.2+ (individual + aprovação) ═══════════════
 _STATUS_LABEL = {
     "APROVADO": "Aprovado",
@@ -841,12 +792,8 @@ _STATUS_LABEL = {
     "REVISAO_PENDENTE": "Revisão pendente",
     "AUSENTE": "Ausente",
 }
-
-
 def _status_label(status: str) -> str:
     return _STATUS_LABEL.get(status, status or "?")
-
-
 def _freq_reais_consolidadas(r: dict) -> dict[str, dict[str, int]]:
     """Frequências por critério SEM distinção de avaliador.
     Usa 'frequencias_reais' quando existir; senão soma
@@ -862,8 +809,6 @@ def _freq_reais_consolidadas(r: dict) -> dict[str, dict[str, int]]:
                 if f:
                     cons.setdefault(q, {})[ch] = cons[q].get(ch, 0) + int(f)
     return cons
-
-
 def gerar_html_individual(r: dict, nomes: dict | None = None,
                           exame_id: str = "", dojo_id: str = "") -> str:
     """HTML individual por aluno (imprimir/exportar como PDF) — SEM citar
@@ -1017,8 +962,6 @@ def gerar_html_individual(r: dict, nomes: dict | None = None,
   </div>
 </body>
 </html>"""
-
-
 def salvar_individuais_exame(resultados: list[dict],
                              destino_dir: Path,
                              exame_id: str = "",
@@ -1037,37 +980,40 @@ def salvar_individuais_exame(resultados: list[dict],
             encoding="utf-8")
         salvos.append(arquivo)
     return salvos
-
-
 def _bloco_lista_aprovacao(resultados: list[dict],
                            nomes: dict | None = None) -> str:
-    """Tabela oficial de resultados (Aluno | Faixa | Status) — SEM ranking de
-    pontuação e SEM nota. Para o sensei divulgar o resultado ao grupo/pais."""
-    ordem_status = {"APROVADO": 0, "APROVADO_PONTO_ATENCAO": 0,
-                    "RECUPERACAO": 1, "REPROVADO": 2,
-                    "REVISAO_PENDENTE": 3, "AUSENTE": 4}
-    ordenados = sorted(
-        resultados,
-        key=lambda r: (ordem_status.get(r.get("status", "?"), 9),
-                       str((nomes or {}).get(str(r.get("aluno_id", "?")),
-                                             r.get("aluno_id", "?")))),
-    )
+    """Lista de divulgação (v2.3) — SOMENTE aprovados, com a Nova Faixa.
+    Para o sensei divulgar o resultado ao grupo de alunos/pais: sem notas,
+    sem subtítulo, sem ausentes/recuperação/reprovados."""
+    ordem = _carregar_ordem_faixas()
+    aprovados = [r for r in resultados
+                 if r.get("status") in ("APROVADO", "APROVADO_PONTO_ATENCAO")]
+    if not aprovados:
+        return ('<section class="bloco">'
+                '<h2>Resultado do Exame — Lista de Aprovação</h2>'
+                '<p class="vazio">Nenhum aluno aprovado neste exame.</p>'
+                '</section>')
+    aprovados.sort(
+        key=lambda r: str((nomes or {}).get(str(r.get("aluno_id", "?")),
+                                            r.get("aluno_id", "?"))))
     linhas = []
-    for r in ordenados:
+    for r in aprovados:
         aluno_id = str(r.get("aluno_id", "?"))
         nome = (nomes or {}).get(aluno_id, "") or aluno_id
         status = r.get("status", "?")
         fg, _ = _status_cor(status)
+        nova = _nova_faixa(r.get("faixa", ""), status, ordem)
         linhas.append(
             f'<tr><td class="aluno">{_esc(nome)}</td>'
             f'<td>{_esc(r.get("faixa", ""))}</td>'
+            f'<td class="novafaixa">{_esc(nova)}</td>'
             f'<td><span class="status-mini" style="background:{fg};color:#fff">'
-            f'{_esc(_status_label(status))}</span></td></tr>')
+            f'{_esc(_status_label(status))}</span></td></tr>'
+        )
     return f"""<section class="bloco">
       <h2>Resultado do Exame — Lista de Aprovação</h2>
-      <p class="sub-bloco">Lista oficial para divulgação ao grupo de alunos e pais (sem nota de pontuação).</p>
       <table class="tab">
-        <thead><tr><th>Aluno</th><th>Faixa</th><th>Status</th></tr></thead>
+        <thead><tr><th>Aluno</th><th>Faixa</th><th>Nova Faixa</th><th>Status</th></tr></thead>
         <tbody>{''.join(linhas)}</tbody>
       </table>
     </section>"""

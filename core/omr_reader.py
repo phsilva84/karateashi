@@ -1,4 +1,4 @@
-"""core/omr_reader.py — Leitura OMR por busca local (Karate-Ashi v3.27.5).
+"""core/omr_reader.py — Leitura OMR por busca local (Karate-Ashi v3.27.6).
 Semântica do domínio (definida pelo usuário):
 - O avaliador marca TODOS os balões que observou (1..5 por critério);
   cada balão preenchido = 1 ocorrência do erro. 5/5 é legítimo.
@@ -23,23 +23,25 @@ Calibração:
 - v3.27.2: quando a grade é inconclusiva/ausente, dy via OFFSET POR LINHA
   em vez de zero cego (resgatou W09 de 11162992). GREEN: golden 14/14.
 - v3.27.3 (NÃO COMMITAR — regressão): candidatos linha->grade->seed->zero
-  REGREDIU: o seed marcava o disco em folha em branco (W06 PRESENTE) e o
-  gate de 2,205 excluía a grade dos 4 alunos. 72 células alteradas.
-- v3.27.4 (diag_presenca): o disco real está na GRADE (-2,60/-2,40) mesmo
-  acima do gate; em 22263733/22490841 a grade é aliasing e a LINHA acertou.
-  FIX: presença-oráculo linha<->grade SEM gate, seed só no dx. GREEN:
-  golden 14/14, W06 AUSENTE, 4 alunos resgatados. MAS: offset escolhido
-  POR ALUNO -> numa mesma folha rígida W07/W08 usam grade (-2,60) e W09
-  usa linha (+1,25) -> a Eloah cai UMA linha (marcação pula p/ critério
-  abaixo). Evidência visual (folhas anexadas): papel correto, erro no leitor.
-- v3.27.5 (divergência Eloah/Maya/Heloisa conferida à mão): NENHUM dy é
-  universal; o offset deve ser ÚNICO POR FOLHA, escolhido por VOTO DE
-  PRESENÇA na página inteira. Para cada candidato (linha, grade) conta-se
-  quantos alunos da página têm disco de presença marcado; vence o de MAIOR
-  contagem (desempate: menor |dy|). Esse dy único vale para TODOS os alunos
-  da folha (presença + frequências). Se um aluno só marcar presença num dy
-  divergente do consenso -> auditar (suspeito). Nenhum candidato marca nada
-  -> AUSENTE (W06 preservada). Seed do QR só vota no dx, nunca no dy.
+  REGREDIU (seed marcava disco em folha em branco; 72 células alteradas).
+- v3.27.4 (diag_presenca): presença-oráculo linha<->grade SEM gate, seed só
+  no dx. GREEN 14/14. Ficou POR ALUNO -> mesma folha podia usar dy
+  diferentes (W07/W08 grade -2,60 vs W09 linha +1,25) -> Eloah caiu 1 linha.
+- v3.27.5 (divergência conferida à mão): OFFSET ÚNICO POR FOLHA por VOTO DE
+  PRESENÇA na página inteira. GREEN 14/14; Eloah Kihon corrigido 6/6.
+  Evidência diag_rotacao: 11162992 é PLANA (slope ~-0,001, drift -0,2mm) —
+  o "pulo de linha" restante em Kata/Bunkai/Kumite da Eloah era do v3.27.4.
+  22032837 é ROTACIONADA (slope -0,0048, drift -1,0mm no Kumite) e um dy só
+  não corrige: colunas à direita medem com erro ~1mm -> falsos positivos
+  (Kumite Kiai 1/2/1, Bunkai Base 5 vs 3 — tinta real não existe).
+- v3.27.6 (diag_rotacao/diag_bloco): FIX de ROTAÇÃO com GATE — mede o dy da
+  grade por coluna (kihon/kata/bunkai/kumite x=44/113/182/252), ajusta reta
+  por mínimos quadrados e ativa dy(x) linear SÓ se 0.003 <= |slope| <= 0.006.
+  Páginas planas (golden 22490841, 11162992) seguem com o dy votado do
+  v3.27.5. + BAND SNAPPING na frequência: anel achado em banda vizinha
+  (> 0.37*pitch de resíduo) é deslocado para a banda correta (período 4.9mm)
+  — proteção universal contra aliasing de pitch. Presença segue pelo voto
+  por página; seed nunca vota no dy; W06 AUSENTE preservada.
 Regras: presença não marcada -> AUSENTE; módulo <= ~400 linhas.
 """
 from __future__ import annotations
@@ -53,7 +55,7 @@ import numpy as np
 from core import observacoes
 from core.config import QUESITOS, carregar_json
 
-OMR_READER_VERSION = "v3.27.5"
+OMR_READER_VERSION = "v3.27.6"
 A4_W_PX, A4_H_PX = 3508, 2480
 A4_W_MM, A4_H_MM = 297.0, 210.0
 RAZAO_MIN, RAZAO_MAX = 1.30, 1.55
@@ -69,6 +71,9 @@ _OFFSET_MAX_MM = 5.0
 POS_QRS_ALUNO_MM = [(200.5, 14.8), (219.5, 14.8), (238.5, 14.8)]
 LIMIAR_SEED_QR_MM = 1.0
 PITCH_MM = 4.9
+SLOPE_MIN_ROT = 0.003       # v3.27.6: gate mínimo de rotação (mm/mm)
+SLOPE_MAX_ROT = 0.006       # v3.27.6: teto anti-louco (grade aliased)
+BANDA_MAX_MM = PITCH_MM * 0.37  # v3.27.6: banda vizinha > 1.81mm é snap
 _QR_EXAME = re.compile(r"KA\|AVALIADOR=([^|]+)\|DOJO=([^|]+)\|EXAME=([^|]+)")
 _QR_ALUNO = re.compile(r"KA\|ALUNO=([^|]+)\|FAIXA=([^|]+)")
 
@@ -429,6 +434,16 @@ def _densidade_balao(cinza: np.ndarray, balao: dict, escala: float,
     r = balao["r_mm"] * escala
     anel = _achar_anel(cinza, cx, cy, r, janela_px)
     if anel is not None:
+        # v3.27.6: BAND SNAPPING — se o anel caiu em banda vizinha (resíduo
+        # > 0.37*pitch), desloca o centro de medição para a banda correta.
+        d = anel[1] / escala - (balao["y_mm"] + dy_mm)
+        k = int(round(d / PITCH_MM))
+        if k != 0 and abs(d) > BANDA_MAX_MM:
+            cy_med = anel[1] - k * PITCH_MM * escala
+            taxa, blob = _medir(cinza, anel[0], cy_med, anel[2],
+                                recuo=RECUO_FREQ)
+            if taxa >= LIM_MARCADO[0] or taxa >= LIM_VAZIO[0]:
+                return taxa, blob
         return _medir(cinza, anel[0], anel[1], anel[2], recuo=RECUO_FREQ)
     return _medir(cinza, cx, cy, r, recuo=RECUO_FREQ)
 
@@ -560,6 +575,37 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
     if dx_mm == 0.0 and dy_mm == 0.0:
         dx_mm, dy_mm = _calibrar_offset(cinza, amostra, escala, janela_px)
         fonte_off = ""
+    # --- v3.27.6: dy da grade POR COLUNA (kihon/kata/bunkai/kumite) ---------
+    col_xs: dict[str, float] = {}
+    col_dys: dict[str, float] = {}
+    for ap in alunos:
+        for ch, baloes in ap.get("frequencias", {}).items():
+            q = ch.split("_", 1)[0]
+            if q in col_xs:
+                continue
+            x_q = min(b["x_mm"] for b in baloes)
+            ys = sorted({b["y_mm"] for b in baloes
+                         if isinstance(b, dict) and "y_mm" in b})
+            if len(ys) < 2:
+                continue
+            dy_g = _offset_vertical_por_grade(cinza, x_q, ys, escala)
+            if dy_g is None:
+                continue
+            col_xs[q] = x_q
+            col_dys[q] = dy_g
+    rot_slope = 0.0
+    rot_on = False
+    if len(col_dys) >= 3:
+        xs = [col_xs[q] for q in col_dys]
+        dys = [col_dys[q] for q in col_dys]
+        mx = sum(xs) / len(xs)
+        my = sum(dys) / len(dys)
+        den = sum((x - mx) ** 2 for x in xs)
+        if den > 1e-9:
+            rot_slope = sum((x - mx) * (y - my)
+                            for x, y in zip(xs, dys)) / den
+            if SLOPE_MIN_ROT <= abs(rot_slope) <= SLOPE_MAX_ROT:
+                rot_on = True
     # --- v3.24: dy da PÁGINA por VOTO MAJORITÁRIO entre os alunos ----------
     dy_votos: dict[float, int] = {}
     for ap in alunos:
@@ -583,14 +629,7 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
         empatados = [dy for dy, n in dy_votos.items() if n == melhor_n]
         dy_grade = float(min(empatados, key=abs))
 
-    # --- v3.27.5: OFFSET ÚNICO POR FOLHA por VOTO DE PRESENÇA ------------
-    # Nenhum dy é universal (grade acerta em 11162992/11193424; linha acerta
-    # em 22490841/22263733). Em vez de escolher por aluno (causa a Eloah cair
-    # uma linha quando W09 escolhe linha e W07/W08 escolhem grade na mesma
-    # folha), escolhe-se UM dy para a folha inteira: para cada candidato
-    # (linha, grade), conta-se quantos alunos da página têm disco de presença
-    # marcado; vence o de MAIOR contagem (desempate: menor |dy|). Seed do QR
-    # só vota no dx. Nenhum candidato marca nada -> AUSENTE (W06 preservada).
+    # --- v3.27.5: OFFSET ÚNICO POR FOLHA por VOTO DE PRESENÇA --------------
     baloes_linha_folha: list[dict] = []
     for ap in alunos:
         baloes_linha_folha.append(ap["presenca"])
@@ -626,8 +665,25 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
             melhor_c = (nome_c, dx_c, dy_c)
     dx_folha, dy_folha, fonte_dy = melhor_c[1], melhor_c[2], melhor_c[0]
     if melhor_n <= 0:
-        # nenhum candidato achou disco em nenhum aluno -> folha sem presença
         dx_folha, dy_folha, fonte_dy = dx_mm, 0.0, "sem_presenca"
+
+    # --- v3.27.6: dy(x) — reta de rotação OU dy único ----------------------
+    order = sorted(col_xs, key=lambda q: col_xs[q])
+
+    def _dy_em(x_mm: float) -> float:
+        if not rot_on or len(order) < 2:
+            return dy_folha
+        xs = [col_xs[q] for q in order]
+        dys = [col_dys[q] for q in order]
+        if x_mm <= xs[0]:
+            return dys[0]
+        if x_mm >= xs[-1]:
+            return dys[-1]
+        for i in range(len(xs) - 1):
+            if xs[i] <= x_mm <= xs[i + 1]:
+                t = (x_mm - xs[i]) / (xs[i + 1] - xs[i])
+                return dys[i] + t * (dys[i + 1] - dys[i])
+        return dy_folha
 
     resultados = []
     for aluno in alunos:
@@ -646,18 +702,27 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
             incidentes.append(
                 f"calibracao_offset_linha:dx={dx_folha:.2f},dy={dy_folha:.2f} "
                 f"(fonte={fonte_dy},votos={melhor_n})")
+        if rot_on:
+            drift_k = rot_slope * (col_xs.get("kumite", 251.8)
+                                   - col_xs.get("kihon", 44.0))
+            incidentes.append(
+                f"rotacao_acumulada:slope={rot_slope:.5f},"
+                f"drift_kumite_mm={drift_k:+.2f}")
         if aplicar_offset and (dx_folha or dy_folha):
             incidentes.append(
                 f"offset_aplicado:dx={dx_folha:.2f},dy={dy_folha:.2f}")
-        # presença do aluno no offset ÚNICO da folha
+        # presença: dy na posição x do disco de presença
+        dx_p = dx_folha
+        dy_p = _dy_em(aluno["presenca"]["x_mm"])
         pres, inc_p = _estado_disco(cinza, aluno["presenca"], escala,
-                                    janela_px, dx_folha, dy_folha,
+                                    janela_px, dx_p, dy_p,
                                     janela_mm=JANELA_PRESENCA_MM)
         incidentes.extend(f"presenca:{i}" for i in inc_p)
         if pres != "marcado":
             n_marcas = sum(
                 classificar_checkbox(*_densidade_balao(
-                    cinza, b, escala, janela_px, dx_folha, dy_folha)) == "marcado"
+                    cinza, b, escala, janela_px,
+                    dx_folha, _dy_em(b["x_mm"]))) == "marcado"
                 for baloes in aluno.get("frequencias", {}).values()
                 for b in baloes)
             if n_marcas:
@@ -685,7 +750,8 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
             if quesito not in avaliacoes or len(baloes) != FREQ_BALOES:
                 continue
             dens = [_densidade_balao(cinza, b, escala, janela_px,
-                                     dx_folha, dy_folha) for b in baloes]
+                                     dx_folha, _dy_em(b["x_mm"]))
+                    for b in baloes]
             freq, inc = _frequencia(dens)
             incidentes.extend(f"{chave}:{i}" for i in inc)
             if freq > 0:
@@ -693,7 +759,8 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
         obs_marcadas = set()
         for chave, balao in aluno.get("observacoes", {}).items():
             estado, inc = _estado_disco(cinza, balao, escala, janela_px,
-                                        dx_folha, dy_folha, janela_mm=JANELA_MM)
+                                        dx_folha, _dy_em(balao["x_mm"]),
+                                        janela_mm=JANELA_MM)
             incidentes.extend(f"{chave}:{i}" for i in inc)
             if estado == "marcado":
                 obs_marcadas.add(chave)
