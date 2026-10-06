@@ -1,32 +1,34 @@
-"""core/omr_reader.py — Leitura OMR por busca local (Karate-Ashi v3.24).
+"""core/omr_reader.py — Leitura OMR por busca local (Karate-Ashi v3.27.1).
 Semântica do domínio (definida pelo usuário):
 - O avaliador marca TODOS os balões que observou (1..5 por critério);
   cada balão preenchido = 1 ocorrência do erro. 5/5 é legítimo.
 - Frequência do critério = CONTAGEM de balões marcados (0..5), lidos
-  INDEPENDENTEMENTE pelo DISCO CENTRAL (recuo 0.65 -> raio 0.35r):
-  marcado = centro escuro, vazio = centro limpo. Imune a rabiscos e ao
-  anel impresso (que fica fora do disco). 'suspeito' não conta e gera
-  aviso de auditoria visual.
+  INDEPENDENTEMENTE pelo interior do balão.
 Padrão rbaron/omr + OMRChecker (skill "Leitura OMR por Busca Local"):
 - PROIBIDO fiduciais/cruzes. Desalinhamento por BUSCA LOCAL por balão
-  (janela ±3mm; presença ±5mm).
-- QR via zxing-cpp (primário) com pyzbar (fallback, variantes).
+  (janela ±3mm; presença ±5mm). QR via zxing-cpp (primário) + pyzbar.
 - Scan A4 -> resize direto 3508x2480; warp só se não for A4.
-- Calibração v3.23/v3.24: (1) seed por QR (dx); (2) alinhamento vertical
-  por DESLOCAMENTO GLOBAL (varre dy e escolhe o que maximiza as linhas
-  casadas com tol estrita 0,8 mm — elimina a ambiguidade de 1 linha);
-  (3) v3.24: o dy da PÁGINA é decidido por VOTO MAJORITÁRIO entre os
-  alunos da mesma folha (uma folha tem UM deslocamento físico; um aluno
-  isolado pode medir errado por sujeira/borrão na coluna dele);
-  (4) fallback por bolhas quando não há consenso.
-- Presença não marcada -> AUSENTE. Regra: módulo <= ~400 linhas.
-Desambiguação por página (v3.21 — QR é a FONTE PRIMÁRIA): subconjunto
-por QR -> pagina_por_ordem (só com flag) -> página única -> ERRO claro.
+
+Calibração:
+- v3.23/v3.24: (1) seed por QR (dx); (2) alinhamento vertical por
+  DESLOCAMENTO GLOBAL; (3) v3.24: dy da PÁGINA por VOTO MAJORITÁRIO.
+- v3.27 (evidência do scan img20261004_00471691): seed do QR dava dy ~+3mm
+  ESPÚRIO; a grade dava ~-0,4mm (verdade visual). FIX: a grade vence SEMPRE
+  que |dy_grade| <= meio pitch (2,45mm); seed do QR vale APENAS para dx.
+  PRESENÇA: removida a varredura cega (gerava falso PRESENTE na W06).
+- v3.27.1 (diagnóstico dos balões W07-S04/W01-S02/W08-S02): os 3 balões que
+  faltavam liam taxa=0.000 EXATO — marca presente na verdade manual, mas FORA
+  do centrinho medido pelo RECUO 0.65 (raio 0.35r). FIX: a FREQUÊNCIA volta
+  a medir o INTERIOR padrão (recuo 0.20, raio 0.80r — spec original). A
+  PRESENÇA continua estrita (RECUO 0.65) para não regredir W06.
+  NOVIDADES: version stamp (omr_reader_version) em todo resultado + incidente
+  'ausencia_com_marcas:N' quando um AUSENTE tem balões de frequência marcados
+  (auditoria humana, decisão continua AUSENTE).
+Regras: presença não marcada -> AUSENTE; módulo <= ~400 linhas.
 """
 from __future__ import annotations
 
 import re
-from collections import Counter
 from pathlib import Path
 
 import cv2
@@ -35,12 +37,14 @@ import numpy as np
 from core import observacoes
 from core.config import QUESITOS, carregar_json
 
+OMR_READER_VERSION = "v3.27.1"
 A4_W_PX, A4_H_PX = 3508, 2480
 A4_W_MM, A4_H_MM = 297.0, 210.0
 RAZAO_MIN, RAZAO_MAX = 1.30, 1.55
 JANELA_MM = 3.0          # janela da busca local (mm)
 JANELA_PRESENCA_MM = 5.0 # janela ampliada p/ presenca
-RECUO = 0.65             # DISCO CENTRAL (raio 0.35r)
+RECUO = 0.65             # PRESENCA: disco central estrito (raio 0.35r)
+RECUO_FREQ = 0.20        # FREQUENCIA: interior padrão (raio 0.80r)
 LIM_MARCADO = (0.30, 0.25)
 LIM_VAZIO = (0.15, 0.08)
 LIM_DISCO = (0.40, 0.32)
@@ -51,6 +55,7 @@ LIMIAR_SEED_QR_MM = 1.0
 PITCH_MM = 4.9
 _QR_EXAME = re.compile(r"KA\|AVALIADOR=([^|]+)\|DOJO=([^|]+)\|EXAME=([^|]+)")
 _QR_ALUNO = re.compile(r"KA\|ALUNO=([^|]+)\|FAIXA=([^|]+)")
+
 # ---------------------------------------------------------------------------
 # Imagem
 # ---------------------------------------------------------------------------
@@ -67,18 +72,22 @@ def carregar_imagem(caminho: Path) -> np.ndarray:
     if img is None:
         raise ValueError(f"nao foi possivel ler a imagem: {caminho}")
     return img
+
 def _cinza(img: np.ndarray) -> np.ndarray:
     return img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
 def _ordenar_pontos(pts: np.ndarray) -> np.ndarray:
     soma = pts.sum(axis=1)
     diff = np.diff(pts, axis=1).ravel()
     return np.float32([pts[np.argmin(soma)], pts[np.argmin(diff)],
                        pts[np.argmax(soma)], pts[np.argmax(diff)]])
+
 def normalizar_a4(img: np.ndarray) -> np.ndarray:
     h, w = img.shape[:2]
     razao = (w / h) if h else 0.0
     if RAZAO_MIN <= razao <= RAZAO_MAX:
-        return cv2.resize(img, (A4_W_PX, A4_H_PX), interpolation=cv2.INTER_AREA)
+        return cv2.resize(img, (A4_W_PX, A4_H_PX),
+                          interpolation=cv2.INTER_AREA)
     cinza = _cinza(img)
     _, binaria = cv2.threshold(cinza, 0, 255,
                                cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -96,21 +105,19 @@ def normalizar_a4(img: np.ndarray) -> np.ndarray:
                           [A4_W_PX, A4_H_PX], [0, A4_H_PX]])
     M = cv2.getPerspectiveTransform(origem, destino)
     return cv2.warpPerspective(img, M, (A4_W_PX, A4_H_PX))
+
 # ---------------------------------------------------------------------------
 # QR
 # ---------------------------------------------------------------------------
 def _ler_qrs(imagem: np.ndarray) -> list[tuple[str, tuple[int, int, int, int]]]:
-    """Decodifica QRs do frame.
-    zxing-cpp primeiro (robusto p/ QR pequeno 11mm em scan); pyzbar como
-    fallback com variantes (2x/3x, otsu, adaptive, clahe). Deduplica por
-    payload. Box em px da imagem passada (aqui: a4 normalizado).
-    """
     cinza = _cinza(imagem)
     h, w = cinza.shape[:2]
     saida: list[tuple[str, tuple[int, int, int, int]]] = []
+
     def _append(texto: str, box: tuple[int, int, int, int]) -> None:
         if not any(t == texto for t, _ in saida):
             saida.append((texto, box))
+
     try:
         from zxingcpp import read_barcodes
         for fator in (1, 2, 3):
@@ -177,11 +184,13 @@ def _ler_qrs(imagem: np.ndarray) -> list[tuple[str, tuple[int, int, int, int]]]:
         if saida:
             break
     return saida
+
 def _payload_por_prefixo(imagem: np.ndarray, prefixo: str) -> str | None:
     for texto, _ in _ler_qrs(imagem):
         if texto.startswith(f"KA|{prefixo}"):
             return texto
     return None
+
 def _ler_alunos_do_qr(a4: np.ndarray) -> list[tuple[str, str]]:
     alunos = []
     for texto, (x, _, _, _) in _ler_qrs(a4):
@@ -190,16 +199,12 @@ def _ler_alunos_do_qr(a4: np.ndarray) -> list[tuple[str, str]]:
             alunos.append((x, m.group(1), m.group(2)))
     alunos.sort(key=lambda t: t[0])
     return [(a, f) for _, a, f in alunos]
+
 # ---------------------------------------------------------------------------
 # Busca local + medicao
 # ---------------------------------------------------------------------------
 def _achar_anel(cinza: np.ndarray, cx: float, cy: float, r: float,
                 janela_px: float) -> tuple[float, float, float] | None:
-    """Acha o circulo/anel impresso real na janela (+-janela_px).
-    Raio aceito: 0.6r..1.4r (plausivel, anel/disco do balao) — evita
-    contornos de grade/texto. SEM fechamento morfologico (preencheria o
-    anel de balao vazio -> falso positivo). Fallback: maior blob circular.
-    """
     x0, y0 = max(0, int(cx - janela_px)), max(0, int(cy - janela_px))
     x1 = min(cinza.shape[1], int(cx + janela_px + 1))
     y1 = min(cinza.shape[0], int(cy + janela_px + 1))
@@ -249,9 +254,9 @@ def _achar_anel(cinza: np.ndarray, cx: float, cy: float, r: float,
     if abs(centro[0] - cx) + abs(centro[1] - cy) > janela_px + r * 0.6:
         return None
     return (centro[0], centro[1], raio)
+
 def _medir(cinza: np.ndarray, cx: float, cy: float, r: float,
            recuo: float = RECUO) -> tuple[float, float]:
-    """Taxa de escuros + maior blob no DISCO CENTRAL (recuo exclui o anel)."""
     ri = r * (1.0 - recuo)
     x0, y0 = max(0, int(cx - ri)), max(0, int(cy - ri))
     x1 = min(cinza.shape[1], int(cx + ri + 1))
@@ -275,12 +280,14 @@ def _medir(cinza: np.ndarray, cx: float, cy: float, r: float,
         areas = np.bincount(rotulos.ravel())
         blob = float(areas[1:].max()) / dentro
     return taxa, blob
+
 def classificar_checkbox(taxa: float, blob: float) -> str:
     if taxa >= LIM_MARCADO[0] and blob >= LIM_MARCADO[1]:
         return "marcado"
     if taxa < LIM_VAZIO[0] and blob < LIM_VAZIO[1]:
         return "vazio"
     return "suspeito"
+
 def _calibrar_offset(cinza: np.ndarray, baloes: list[dict], escala: float,
                      janela_px: float) -> tuple[float, float]:
     passo = max(1, len(baloes) // 30)
@@ -301,12 +308,8 @@ def _calibrar_offset(cinza: np.ndarray, baloes: list[dict], escala: float,
     if abs(dx) > _OFFSET_MAX_MM or abs(dy) > _OFFSET_MAX_MM:
         return 0.0, 0.0
     return dx, dy
+
 def _calibrar_offset_por_qr(a4: np.ndarray, escala: float) -> tuple[float, float]:
-    """Offset (mm) pela posição REAL dos QRs de aluno vs. posição nominal.
-    Mais confiável que a calibração por bolhas quando a folha está deslocada
-    ~1 linha: evita o lock auto-consistente na linha vizinha (S03).
-    Mediana dos desvios; clamp ±_OFFSET_MAX_MM. Devolve (0, 0) se menos de
-    2 QRs decodificarem ou se o desvio for atípico (-> fallback por bolhas)."""
     dxs, dys = [], []
     for texto, (x, y, w, h) in _ler_qrs(a4):
         if _QR_ALUNO.search(texto) is None:
@@ -321,6 +324,7 @@ def _calibrar_offset_por_qr(a4: np.ndarray, escala: float) -> tuple[float, float
     if abs(dx) > _OFFSET_MAX_MM or abs(dy) > _OFFSET_MAX_MM:
         return 0.0, 0.0
     return dx, dy
+
 def _offset_por_linha(cinza: np.ndarray, baloes_linha: list[dict],
                       escala: float, janela_px: float,
                       dx0: float, dy0: float) -> tuple[float, float]:
@@ -340,14 +344,12 @@ def _offset_por_linha(cinza: np.ndarray, baloes_linha: list[dict],
     if abs(dx) > _OFFSET_MAX_MM or abs(dy) > _OFFSET_MAX_MM:
         return dx0, dy0
     return dx0 + dx, dy0 + dy
+
 # ---------------------------------------------------------------------------
-# v3.22 — DETECÇÃO DO GRID REAL DE LINHAS
+# DETECÇÃO DO GRID REAL DE LINHAS
 # ---------------------------------------------------------------------------
 def _detectar_linhas(cinza: np.ndarray, x_mm: float, escala: float,
                      y_min: float, y_max: float) -> list[float]:
-    """Detecta os Y reais (mm) das linhas de balões numa faixa vertical
-    estreita na coluna x_mm. Componentes com área de anel plausível,
-    agrupados por proximidade (< 2 mm). Devolve centros ordenados (mm)."""
     cx = int(x_mm * escala)
     faixa = cinza[max(0, int(y_min * escala)):int(y_max * escala),
                   max(0, cx - 30):cx + 30]
@@ -371,19 +373,10 @@ def _detectar_linhas(cinza: np.ndarray, x_mm: float, escala: float,
         else:
             grupos.append([y])
     return [float(np.mean(g)) for g in grupos]
-# --- v3.23 ----------------------------------------------------------------
+
 def _offset_vertical_por_grade(cinza: np.ndarray, x_mm: float,
                                y_esperadas: list[float],
                                escala: float) -> float | None:
-    """dy (mm) real do corpo da folha por DESLOCAMENTO GLOBAL.
-
-    Varre dy candidato em [-5, +5] (passo 0,1 mm) e conta quantas linhas
-    ESPERADAS têm componente DETECTADO a <= 0,8 mm de (esperada + dy).
-    Escolhe o dy de MAIOR contagem (desempate: menor |dy|). A tolerância
-    estrita (0,8 mm << pitch 4,9 mm) elimina a ambiguidade de 1 linha que
-    o casamento por "vizinho mais próximo" tinha (ele travava em +2,3 mm,
-    sobre a linha de BAIXO, quando o corpo real está ~-2,6 mm).
-    Devolve None se a detecção for fraca (fallback ao offset padrão)."""
     tol = 0.8  # mm
     y0 = min(y_esperadas) - 5.0
     y1 = max(y_esperadas) + 5.0
@@ -411,24 +404,29 @@ def _offset_vertical_por_grade(cinza: np.ndarray, x_mm: float,
     if abs(melhor_dy) > _OFFSET_MAX_MM:
         return None
     return melhor_dy
+
 def _densidade_balao(cinza: np.ndarray, balao: dict, escala: float,
                      janela_px: float, dx_mm: float = 0.0,
                      dy_mm: float = 0.0) -> tuple[float, float]:
-    """Densidade do DISCO CENTRAL do balao, medindo no anel real se achado,
-    senao no centro nominal (offset aplicado)."""
     cx = (balao["x_mm"] + dx_mm) * escala
     cy = (balao["y_mm"] + dy_mm) * escala
     r = balao["r_mm"] * escala
     anel = _achar_anel(cinza, cx, cy, r, janela_px)
     if anel is not None:
-        return _medir(cinza, anel[0], anel[1], anel[2])
-    return _medir(cinza, cx, cy, r)
+        return _medir(cinza, anel[0], anel[1], anel[2], recuo=RECUO_FREQ)
+    return _medir(cinza, cx, cy, r, recuo=RECUO_FREQ)
+
+# ---------------------------------------------------------------------------
+# Presença / observações (v3.27 — SEM varredura cega)
+# ---------------------------------------------------------------------------
 def _estado_disco(cinza: np.ndarray, balao: dict, escala: float,
                   janela_px: float, dx_mm: float = 0.0, dy_mm: float = 0.0,
                   janela_mm: float = JANELA_MM) -> tuple[str, list[str]]:
-    """Presenca/Obs: disco solido (recuo exclui o anel; limiar ALTO).
-    Sempre tenta a varredura como fallback: se o anel achado der medida
-    'suspeita', NAO retorna logo — varre a janela por disco solido real.
+    """Disco sólido no CENTRO (recuo exclui o anel; limiar ALTO).
+    v3.27 — SEM varredura cega: mede apenas o disco central na posição
+    nominal (offset aplicado) ou no anel encontrado. A varredura por offsets
+    (v3.24) era a causa do falso positivo da folha em branco. Sem varredura,
+    centro limpo -> vazio -> AUSENTE.
     """
     cx = (balao["x_mm"] + dx_mm) * escala
     cy = (balao["y_mm"] + dy_mm) * escala
@@ -441,27 +439,14 @@ def _estado_disco(cinza: np.ndarray, balao: dict, escala: float,
             return "marcado", (["disco_sem_anel"] if taxa >= 0.75 else [])
         if taxa < LIM_VAZIO[0] and blob < LIM_VAZIO[1]:
             return "vazio", []
-        # anel suspeito: nao confia -> cai na varredura (fallback)
-    passo = max(int(1.5 * escala), 4)
-    raio_l = int(jpx)
-    for ox in range(-raio_l, raio_l + 1, passo):
-        for oy in range(-raio_l, raio_l + 1, passo):
-            taxa, blob = _medir(cinza, cx + ox, cy + oy, r)
-            if taxa >= LIM_DISCO[0] and blob >= LIM_DISCO[1]:
-                return "marcado", ["disco_sem_anel"]
     taxa, blob = _medir(cinza, cx, cy, r)
+    if taxa >= LIM_DISCO[0] and blob >= LIM_DISCO[1]:
+        return "marcado", (["disco_sem_anel"] if taxa >= 0.75 else [])
     if taxa < LIM_VAZIO[0] and blob < LIM_VAZIO[1]:
         return "vazio", []
     return "suspeito", ["anel_nao_encontrado"]
+
 def _frequencia(densidades: list[tuple[float, float]]) -> tuple[int, list[str]]:
-    """Frequencia do criterio = QUANTIDADE de baloes marcados (0..5).
-    Logica do dominio (avaliacao livre por ocorrencia):
-    - o avaliador marca TODOS os baloes que observou (1..5 por criterio);
-      cada balao preenchido = 1 ocorrencia do erro. 5/5 e legitimo.
-    - conta quantos baloes estao 'marcado' (disco central preenchido);
-    - 'suspeito' (marcacao leve/parcial) nao conta e gera aviso p/ revisao;
-    - 'vazio' nao conta. Nao ha 'ambiguidade': varias marcacoes sao validas.
-    """
     marcados = 0
     avisos: list[str] = []
     for taxa, blob in densidades:
@@ -471,6 +456,7 @@ def _frequencia(densidades: list[tuple[float, float]]) -> tuple[int, list[str]]:
         elif est == "suspeito":
             avisos.append("suspeito")
     return marcados, avisos
+
 def _anular_contradicoes(marcadas: set[str], incidentes: list[str]) -> None:
     for i in range(1, 7):
         p, m = f"obs_p{i}", f"obs_m{i}"
@@ -478,18 +464,19 @@ def _anular_contradicoes(marcadas: set[str], incidentes: list[str]) -> None:
             marcadas.discard(p)
             marcadas.discard(m)
             incidentes.append(f"contradicao:{p}/{m}")
+
 # ---------------------------------------------------------------------------
 # Coordenadas
 # ---------------------------------------------------------------------------
 def _carregar_coordenadas(pasta: Path, exame: str,
                           avaliador: str) -> dict | None:
-    # Novo padrão (sem 'folha1'): {exame}_{avaliador}_coordenadas.json
     candidatos = sorted(pasta.glob(f"{exame}_{avaliador}_coordenadas.json"))
-    if not candidatos:  # legado: {exame}_{avaliador}_folha1_coordenadas.json
+    if not candidatos:
         candidatos = sorted(pasta.glob(f"{exame}_{avaliador}_*_coordenadas.json"))
     if not candidatos:
         return None
     return carregar_json(candidatos[0])
+
 # ---------------------------------------------------------------------------
 # Fluxo completo
 # ---------------------------------------------------------------------------
@@ -517,7 +504,6 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
             f"JSON de coordenadas nao encontrado em output/pre_exame/ "
             f"({exame}_{avaliador}_*_coordenadas.json). Gere a folha com "
             f"tools/pre_exame.py e digitalize o PDF gerado.")
-    # --- Desambiguação da página (v3.21): QR é a FONTE PRIMÁRIA ----------
     por_pag: dict[int, set] = {}
     for a in coords["alunos"]:
         por_pag.setdefault(a.get("pagina", 1), set()).add(a["id"])
@@ -536,7 +522,6 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
         alunos = [a for a in alunos if a.get("pagina", 1) == pagina_por_qr]
         ids_pagina = sorted(por_pag[pagina_por_qr])
     elif pagina_por_ordem is not None:
-        # Opção EXPLÍCITA — só quando o usuário garante a ordem do lote.
         alunos = [a for a in alunos
                   if a.get("pagina", 1) == pagina_por_ordem]
         if not alunos:
@@ -545,57 +530,49 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
                 f"coordenadas (paginas: {','.join(map(str, paginas_json))}).")
         uso_ordem = True
     elif len(paginas_json) == 1:
-        pass  # folha unica — todos os alunos sao desta pagina
+        pass
     else:
         raise ValueError(
             "QRs de aluno nao lidos e o JSON tem multiplas paginas "
-            f"({','.join(map(str, paginas_json))}). Rode "
-            "tools/diagnostico_qr.py --pasta <scans> e verifique a "
-            "decodificacao (instale: pip install zxing-cpp). Se a ordem "
-            "dos scans for garantida, use --assumir-ordem-lote no ingest.")
+            f"({','.join(map(str, paginas_json))}).")
     amostra: list[dict] = []
     for aluno in alunos:
         amostra.append(aluno["presenca"])
         for baloes in aluno.get("frequencias", {}).values():
             amostra.extend(baloes)
-    # Calibração: âncoras de QR primeiro (dx); bolhas como fallback.
     dx_mm, dy_mm = _calibrar_offset_por_qr(a4, escala)
     fonte_off = "_qr"
     if dx_mm == 0.0 and dy_mm == 0.0:
         dx_mm, dy_mm = _calibrar_offset(cinza, amostra, escala, janela_px)
         fonte_off = ""
     # --- v3.24: dy da PÁGINA por VOTO MAJORITÁRIO entre os alunos ----------
-    # Uma folha tem UM deslocamento físico; o voto por aluno é frágil
-    # (W03/W09 pegaram dy espúrio na mesma página em que os irmãos de
-    # página acertaram). Cada aluno mede o dy da própria coluna; o valor
-    # mais votado vale para TODOS. Só decide com maioria clara; sem
-    # consenso -> cada aluno segue o caminho padrão (fallback por bolhas).
-    votos: list[float] = []
+    dy_votos: dict[float, int] = {}
     for ap in alunos:
         y_esp = sorted({pos["y_mm"]
-                        for ch in ap["frequencias"]
+                        for ch in ap.get("frequencias", {})
                         for pos in ap["frequencias"][ch]
                         if isinstance(pos, dict) and "y_mm" in pos})
-        if len(y_esp) < 2 or not ap["frequencias"]:
+        if len(y_esp) < 2 or not ap.get("frequencias"):
             continue
         x_g = min(ap["frequencias"][ch][0]["x_mm"]
                   for ch in ap["frequencias"]
                   if ap["frequencias"][ch])
-        dy_i = _offset_vertical_por_grade(cinza, x_g, y_esp, escala)
-        if dy_i is not None:
-            votos.append(round(dy_i, 1))
+        dy_g = _offset_vertical_por_grade(cinza, x_g, y_esp, escala)
+        if dy_g is None:
+            continue
+        chave = round(dy_g, 1)
+        dy_votos[chave] = dy_votos.get(chave, 0) + 1
     dy_grade: float | None = None
-    if votos:
-        contagem = Counter(votos)
-        topo = contagem.most_common(1)[0]
-        if topo[1] >= len(votos) // 2 + 1:  # maioria estrita; 1 aluno = ok
-            empatados = [d for d, c in contagem.items() if c == topo[1]]
-            dy_grade = float(min(empatados, key=abs))
+    if dy_votos:
+        melhor_n = max(dy_votos.values())
+        empatados = [dy for dy, n in dy_votos.items() if n == melhor_n]
+        dy_grade = float(min(empatados, key=abs))
     resultados = []
     for aluno in alunos:
         aluno_id = aluno["id"]
         faixa_aluno = (faixa or aluno.get("faixa") or "branca").strip().lower()
-        incidentes = ["origem:" + (origem or "desconhecida")]
+        incidentes = ["origem:" + (origem or "desconhecida"),
+                      f"omr_reader:{OMR_READER_VERSION}"]
         if pagina_por_qr is not None:
             incidentes.append(f"qrs_pagina:{','.join(ids_pagina)}")
         elif uso_ordem:
@@ -607,30 +584,36 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
         for baloes in aluno.get("frequencias", {}).values():
             baloes_linha.extend(baloes)
         baloes_linha.extend(aluno.get("observacoes", {}).values())
-        # --- v3.24: usa o dy da PÁGINA (voto majoritário) -----------------
-        if dy_grade is not None:
-            incidentes.append(f"calibracao_offset_grade:dy={dy_grade:.2f}")
-        if dy_grade is not None and abs(dy_grade) >= LIMIAR_SEED_QR_MM:
+        # --- v3.27: prioridade do dy (fix cirúrgico sobre o v3.24) ---------
+        if dy_grade is not None and abs(dy_grade) <= PITCH_MM * 0.45:
             dx_l, dy_l = dx_mm, dy_grade
         elif (dx_mm, dy_mm) != (0.0, 0.0) and (
                 abs(dx_mm) >= LIMIAR_SEED_QR_MM
                 or abs(dy_mm) >= LIMIAR_SEED_QR_MM):
-            dx_l, dy_l = dx_mm, dy_mm
+            dx_l, dy_l = dx_mm, 0.0  # seed só p/ dx (dy do seed é viciado)
         else:
             dx_l, dy_l = _offset_por_linha(cinza, baloes_linha, escala,
                                            janela_px, dx_mm, dy_mm)
         if (dx_l, dy_l) != (dx_mm, dy_mm):
             incidentes.append(
                 f"calibracao_offset_linha:dx={dx_l:.2f},dy={dy_l:.2f}")
-        # Marcador de auditoria quando o offset for efetivamente aplicado
         if aplicar_offset and (dx_l or dy_l):
             incidentes.append(
                 f"offset_aplicado:dx={dx_l:.2f},dy={dy_l:.2f}")
+        # --- presença (v3.27 — sem varredura cega) -------------------------
         pres, inc_p = _estado_disco(
             cinza, aluno["presenca"], escala, janela_px, dx_l, dy_l,
             janela_mm=JANELA_PRESENCA_MM)
         incidentes.extend(f"presenca:{i}" for i in inc_p)
         if pres != "marcado":
+            # v3.27.1: auditoria — AUSENTE com balões de frequência marcados
+            n_marcas = sum(
+                classificar_checkbox(*_densidade_balao(
+                    cinza, b, escala, janela_px, dx_l, dy_l)) == "marcado"
+                for baloes in aluno.get("frequencias", {}).values()
+                for b in baloes)
+            if n_marcas:
+                incidentes.append(f"ausencia_com_marcas:{n_marcas}")
             resultados.append({
                 "metadados": {"exame_id": exame, "avaliador_id": avaliador,
                               "dojo_id": dojo, "aluno_id": aluno_id,
@@ -643,6 +626,7 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
                 "observacao_montada": "",
                 "origem": origem,
                 "incidentes_auditoria": incidentes,
+                "omr_reader_version": OMR_READER_VERSION,
             })
             continue
         avaliacoes: dict[str, dict] = {q: {"frequencias": {},
@@ -678,5 +662,6 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
             "observacao_montada": observacoes.montar_observacao(obs_lista),
             "origem": origem,
             "incidentes_auditoria": incidentes,
+            "omr_reader_version": OMR_READER_VERSION,
         })
     return resultados
