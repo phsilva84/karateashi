@@ -42,6 +42,11 @@ Calibração:
   (> 0.37*pitch de resíduo) é deslocado para a banda correta (período 4.9mm)
   — proteção universal contra aliasing de pitch. Presença segue pelo voto
   por página; seed nunca vota no dy; W06 AUSENTE preservada.
+  CORREÇÃO PÓS-APLICAÇÃO: a coleta de ys POR COLUNA agregava só os 5 balões
+  de UM critério (mesma linha -> ys com 1 valor -> len<2 -> coluna nunca
+  medida -> rot_on sempre False). FIX: col_ys[q] agora acumula o y_mm de
+  TODOS os critérios do quesito (todos os alunos), igual ao diag_rotacao —
+  só assim a grade de cada coluna é medida e a rotação ativa de verdade.
 Regras: presença não marcada -> AUSENTE; módulo <= ~400 linhas.
 """
 from __future__ import annotations
@@ -576,22 +581,26 @@ def processar_imagem(caminho_imagem: Path, base_cfg: Path | None = None,
         dx_mm, dy_mm = _calibrar_offset(cinza, amostra, escala, janela_px)
         fonte_off = ""
     # --- v3.27.6: dy da grade POR COLUNA (kihon/kata/bunkai/kumite) ---------
+    # CORREÇÃO: col_ys[q] acumula o y_mm de TODOS os critérios do quesito
+    # (todos os alunos), igual ao diag_rotacao — antes só pegava os 5 balões
+    # de um critério (mesma linha -> ys com 1 valor -> len<2 -> coluna nunca
+    # medida -> rot_on sempre False).
     col_xs: dict[str, float] = {}
-    col_dys: dict[str, float] = {}
+    col_ys: dict[str, set] = {}
     for ap in alunos:
         for ch, baloes in ap.get("frequencias", {}).items():
             q = ch.split("_", 1)[0]
-            if q in col_xs:
-                continue
-            x_q = min(b["x_mm"] for b in baloes)
-            ys = sorted({b["y_mm"] for b in baloes
-                         if isinstance(b, dict) and "y_mm" in b})
-            if len(ys) < 2:
-                continue
-            dy_g = _offset_vertical_por_grade(cinza, x_q, ys, escala)
-            if dy_g is None:
-                continue
-            col_xs[q] = x_q
+            col_xs.setdefault(q, min(b["x_mm"] for b in baloes))
+            col_ys.setdefault(q, set()).update(
+                b["y_mm"] for b in baloes
+                if isinstance(b, dict) and "y_mm" in b)
+    col_dys: dict[str, float] = {}
+    for q in col_xs:
+        ys = sorted(col_ys[q])
+        if len(ys) < 2:          # precisa de >=2 linhas p/ medir a grade
+            continue
+        dy_g = _offset_vertical_por_grade(cinza, col_xs[q], ys, escala)
+        if dy_g is not None:
             col_dys[q] = dy_g
     rot_slope = 0.0
     rot_on = False
