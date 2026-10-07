@@ -1,4 +1,4 @@
-"""core/relatorio_html.py — Relatório visual (HTML autossuficiente) do Karate-Ashi v2.4.
+"""core/relatorio_html.py — Relatório visual (HTML autossuficiente) do Karate-Ashi v2.6.
 Gera HTML com CSS embutido (sem dependências externas), pronto para preview no
 Google Drive, impressão em A4 e arquivamento.
 Mudanças v2.1 (revisão do usuário):
@@ -18,10 +18,10 @@ Mudanças v2.1 (revisão do usuário):
   9)   Master: novo bloco "Análise de Desempenho" (média por quesito + ranking,
        foco do treino, alunos em atenção e destaque do exame).
 Mudanças v2.2:
-  10)  Relatório INDIVIDUAL por aluno (HTML dedicado p/ imprimir/exportar PDF),
-       SEM citar avaliadores: nota final + status, nota por quesito, marcações
-       consolidadas por critério e observações resumidas (BOM!/A melhorar/Outras).
-       gravado no MESMO diretório do relatório do exame.
+  10)  Relatório INDIVIDUAL por aluno (HTML dedicado p/ imprimir/exportar PDF):
+       nota final + status, nota por quesito, marcações consolidadas por
+       critério e observações resumidas (BOM!/A melhorar/Outras). gravado no
+       MESMO diretório do relatório do exame.
   11)  Relatório do Sensei ganha bloco "Resultado do Exame — Lista de Aprovação"
        (tabela Aluno | Faixa | Status, SEM nota e SEM ranking) para divulgação
        ao grupo de alunos/pais.
@@ -40,10 +40,33 @@ Mudanças v2.4 (novo layout do Sensei):
        quesitos ocupam a largura total e as seções "Marcações por avaliador"
        e "Observações dos avaliadores" ficam lado a lado (colunas 1.25fr/1fr),
        aproveitando a largura extra do card.
+Mudanças v2.5 (correção do usuário):
+  16)  Arquivos do relatório INDIVIDUAL passam a usar o NOME do aluno no nome
+       do arquivo (relatorio_individual_miguel_elias_....html) em vez do ID
+       interno (relatorio_individual_W01.html). Slug seguro para Windows/Drive:
+       sem acentos, minúsculas, espaços viram underline. Nome vazio cai para
+       'aluno' e nunca quebra o pipeline.
+Mudanças v2.6 (revisão do usuário):
+  17)  Relatório INDIVIDUAL:
+       (a) tabela "Marcações do Exame" passa a exibir as colunas POR
+           AVALIADOR (nomes de config/avaliadores.json) além da coluna
+           Frequência consolidada; degrada para o formato antigo se o dict
+           do aluno não tiver frequencias_por_avaliador;
+       (b) layout em formato HORIZONTAL, como no relatório do Sensei: card
+           único com o topo (Nota Final + referência) na largura total e as
+           seções "Notas por Quesito" × "Marcações do Exame" lado a lado em
+           telas largas (empilham em telas menores/print);
+       (c) bloco "Nota Final" ganha a legenda "Referência para a nota" — as
+           pontuações para Aprovado, Aprovado com ponto de atenção e
+           Recuperação (lidas de config/regras_gerais.json com busca
+           recursiva por chaves comuns; fallback: 70,0 / até 75,0 / abaixo
+           de 70,0) — para os pais compararem a nota com as medidas.
 """
 from __future__ import annotations
 import html
 import json
+import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from core.observacoes import OBS_MELHORAR, OBS_POSITIVAS
@@ -68,6 +91,17 @@ def _esc(t) -> str:
     return html.escape(str(t), quote=True)
 def _status_cor(status: str) -> tuple[str, str]:
     return COR_STATUS.get(status, ("#6a737d", "#eef1f4"))
+def _slug_nome(nome: str) -> str:
+    """Converte o nome do aluno em slug seguro para nome de arquivo.
+    Ex.: 'Miguel Elias de Brito Lopes Ferreira' ->
+         'miguel_elias_de_brito_lopes_ferreira'.
+    Remove acentos, mantém letras/números/espaços/hífen, minúsculas e troca
+    espaços por '_'. Retorna 'aluno' se o resultado ficar vazio."""
+    t = unicodedata.normalize("NFKD", str(nome or ""))
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    t = re.sub(r"[^\w\s-]", "", t).strip().lower()
+    t = re.sub(r"[\s_]+", "_", t)
+    return t.strip("_") or "aluno"
 # --- Config auxiliar (avaliadores + faixas) ---------------------------------
 def _carregar_avaliadores_map() -> dict[str, str]:
     """{'S02': 'Sensei Fabio', ...} a partir de config/avaliadores.json."""
@@ -110,6 +144,47 @@ def _nova_faixa(faixa_atual: str, status: str, ordem: list[str]) -> str:
     if status == "RECUPERACAO":
         return "Mantém faixa"
     return "—"
+# --- Limites de nota por status (v2.6 — legenda do individual) -------------
+_LIMITES_PADRAO = {"aprovado": 70.0, "atencao": 75.0, "recuperacao": 70.0}
+def _limites_status() -> dict:
+    """Limites de nota por status, para a legenda do relatório INDIVIDUAL.
+    Prioriza config/regras_gerais.json (busca recursiva por chaves comuns);
+    fallback: aprovado 70,0 · atenção até 75,0 · recuperação abaixo de 70,0."""
+    limites = dict(_LIMITES_PADRAO)
+    try:
+        doc = json.loads((_RAIZ / "config" / "regras_gerais.json")
+                         .read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — config ausente/inválida não quebra
+        return limites
+    chaves = {
+        "aprovado": ("aprovacao", "nota_aprovacao", "nota_min_aprovacao",
+                     "aprovado_min", "min_aprovacao"),
+        "atencao": ("atencao", "ponto_atencao", "nota_atencao",
+                    "aprovado_ponto_atencao", "nota_ponto_atencao",
+                    "min_atencao"),
+        "recuperacao": ("recuperacao", "nota_recuperacao",
+                        "recuperacao_min", "min_recuperacao"),
+    }
+    def _buscar(nodo, alvo) -> float | None:
+        if isinstance(nodo, dict):
+            for k, v in nodo.items():
+                kl = str(k).strip().lower().replace(" ", "_")
+                if kl in chaves[alvo] and isinstance(v, (int, float)):
+                    return float(v)
+                r = _buscar(v, alvo)
+                if r is not None:
+                    return r
+        elif isinstance(nodo, list):
+            for item in nodo:
+                r = _buscar(item, alvo)
+                if r is not None:
+                    return r
+        return None
+    for alvo in limites:
+        v = _buscar(doc, alvo)
+        if v is not None:
+            limites[alvo] = v
+    return limites
 # --- Observações (classificação BOM! / A MELHORAR) --------------------------
 _OBS_POSITIVAS_TXT = tuple(t.lower() for t in OBS_POSITIVAS.values())
 _OBS_MELHORAR_TXT = tuple(t.lower() for t in OBS_MELHORAR.values())
@@ -138,10 +213,7 @@ def _separar_obs(texto: str) -> dict[str, list[str]]:
         grupos[_classificar_obs(parte)].append(parte)
     return grupos
 def _texto_recomendacao(recomendacoes: dict, quesito: str, chave: str) -> str:
-    """Recomendação por (quesito, critério) — lê 'por_quesito' com fallback.
-    Se a estrutura 'por_quesito' não tiver a entrada, usa a chave antiga na
-    raiz (texto único) e remove um eventual rótulo 'Recomendação:' embutido.
-    """
+    """Recomendação por (quesito, critério) — lê 'por_quesito' com fallback."""
     por_q = (recomendacoes or {}).get("por_quesito", {})
     v = por_q.get(quesito, {}).get(chave, None)
     if v is None:
@@ -157,10 +229,7 @@ def _texto_recomendacao(recomendacoes: dict, quesito: str, chave: str) -> str:
     return ""
 def _texto_recomendacao_detalhe(recomendacoes: dict, quesito: str,
                                 chave: str) -> tuple[str, str]:
-    """(Recomendação, Planejamento Sugerido) por (quesito, critério).
-    Estrutura nova: dict com 'recomendacao' e 'planejamento'. Fallback para
-    a chave antiga na raiz, separando o texto antes/depois de 'Recomendação:'.
-    """
+    """(Recomendação, Planejamento Sugerido) por (quesito, critério)."""
     por_q = (recomendacoes or {}).get("por_quesito", {})
     v = por_q.get(quesito, {}).get(chave, None)
     if isinstance(v, dict):
@@ -169,7 +238,6 @@ def _texto_recomendacao_detalhe(recomendacoes: dict, quesito: str,
         return str(rec), str(plano)
     if isinstance(v, str):
         return str(v), ""
-    # Fallback: chave antiga na raiz (texto único com rótulo embutido)
     texto = str((recomendacoes or {}).get(chave, "") or "")
     if "Recomendação:" in texto:
         antes, depois = texto.split("Recomendação:", 1)
@@ -826,12 +894,67 @@ def _freq_reais_consolidadas(r: dict) -> dict[str, dict[str, int]]:
                 if f:
                     cons.setdefault(q, {})[ch] = cons[q].get(ch, 0) + int(f)
     return cons
+def _tabela_marcacoes_individual(r: dict,
+                                 avaliadores_map: dict | None) -> str:
+    """Tabela de marcações do relatório INDIVIDUAL (v2.6): colunas POR
+    AVALIADOR (nomes de config/avaliadores.json) + coluna Frequência
+    consolidada. Degrada para 'Critério | Frequência' se o dict do aluno
+    não tiver frequencias_por_avaliador (dados antigos)."""
+    avaliadores_map = avaliadores_map or _carregar_avaliadores_map()
+    por_av = r.get("frequencias_por_avaliador") or []
+    av_ids = r.get("avaliadores_ids") or [f"A{i + 1}" for i in range(len(por_av))]
+    labels = [avaliadores_map.get(str(aid), "") or str(aid) or f"A{i + 1}"
+              for i, aid in enumerate(av_ids)] or ["Avaliador 1"]
+    tem_av = bool(por_av)
+    freq_cons = _freq_reais_consolidadas(r)
+    quesitos = r.get("quesitos") or {}
+    blocos = []
+    for q, qnome in NOME_QUESITO.items():
+        det = (quesitos.get(q) or {}).get("detalhes") or {}
+        linhas, tem_marcacao = [], False
+        for chave, d in det.items():
+            if tem_av:
+                vals = [int((avp.get(q) or {}).get(chave, 0) or 0)
+                        for avp in por_av]
+            else:
+                vals = []
+            total = int((freq_cons.get(q) or {}).get(chave, 0) or 0)
+            if tem_av and total == 0:
+                total = sum(vals)
+            if total == 0:
+                continue
+            tem_marcacao = True
+            nome_c = d.get("nome") or chave
+            if tem_av:
+                tds = "".join(f"<td>{v if v else ''}</td>" for v in vals)
+                linhas.append(
+                    f'<tr><td class="crit">{_esc(nome_c)}</td>{tds}'
+                    f'<td class="freq-total">{total}</td></tr>')
+            else:
+                linhas.append(
+                    f'<tr><td class="crit">{_esc(nome_c)}</td>'
+                    f'<td class="freq-total">{total}</td></tr>')
+        if not tem_marcacao:
+            continue
+        if tem_av:
+            th = "".join(f"<th>{_esc(lb)}</th>" for lb in labels)
+            cabecalho = f"<th>Critério</th>{th}<th>Frequência</th>"
+        else:
+            cabecalho = "<th>Critério</th><th>Frequência</th>"
+        blocos.append(
+            f'<div class="marc-bloco"><span class="marc-q-nome">{_esc(qnome)}</span>'
+            f'<table class="tab tab-ind"><thead><tr>{cabecalho}</tr></thead>'
+            f'<tbody>{"".join(linhas)}</tbody></table></div>')
+    return "".join(blocos) or "<p class='vazio'>Sem marcações.</p>"
 def gerar_html_individual(r: dict, nomes: dict | None = None,
                           exame_id: str = "", dojo_id: str = "") -> str:
-    """HTML individual por aluno (imprimir/exportar como PDF) — SEM citar
-    avaliadores. Mostra: nota final, status, nota por quesito, marcações
-    consolidadas por critério e observações resumidas (BOM!/A melhorar/Outras)
-    sem autoria."""
+    """HTML individual por aluno (imprimir/exportar PDF) — v2.6:
+    - bloco Nota Final com a legenda "Referência para a nota" (Aprovado,
+      Aprovado com atenção, Recuperação) p/ os pais compararem a nota;
+    - Notas por Quesito (barras) lado a lado com Marcações do Exame (em
+      colunas por avaliador + Frequência) em telas largas — layout
+      horizontal como no relatório do Sensei;
+    - Observações resumidas (BOM!/A melhorar/Outras) sem autoria."""
     aluno_id = str(r.get("aluno_id", "?"))
     nome = (nomes or {}).get(aluno_id, "") or aluno_id
     faixa = r.get("faixa", "")
@@ -848,27 +971,8 @@ def gerar_html_individual(r: dict, nomes: dict | None = None,
                  f'<div class="mini-q-bar"><div class="mini-q-fill" '
                  f'style="width:{pct:.0f}%;background:{cor}"></div></div>'
                  f'<span class="mini-q-val">{nq:.1f}</span></div>')
-    # Marcações consolidadas (sem avaliador)
-    freq_reais = _freq_reais_consolidadas(r)
-    blocos_marc = []
-    for q, qnome in NOME_QUESITO.items():
-        det = (r.get("quesitos", {}).get(q, {}) or {}).get("detalhes") or {}
-        linhas = []
-        tem = False
-        for chave, f in (freq_reais.get(q) or {}).items():
-            if not f:
-                continue
-            tem = True
-            nome_c = (det.get(chave) or {}).get("nome") or chave
-            linhas.append(
-                f'<tr><td class="crit">{_esc(nome_c)}</td><td>{int(f)}</td></tr>')
-        if not tem:
-            continue
-        blocos_marc.append(
-            f'<div class="marc-bloco"><span class="marc-q-nome">{_esc(qnome)}</span>'
-            f'<table class="tab"><thead><tr><th>Critério</th><th>Frequência</th></tr></thead>'
-            f'<tbody>{"".join(linhas)}</tbody></table></div>')
-    marc_html = "".join(blocos_marc) or "<p class='vazio'>Sem marcações.</p>"
+    # Marcações por avaliador + frequência (v2.6)
+    marc_html = _tabela_marcacoes_individual(r, None)
     # Observações consolidadas (sem autoria)
     textos = []
     for o in (r.get("observacoes_por_avaliador") or []):
@@ -901,6 +1005,23 @@ def gerar_html_individual(r: dict, nomes: dict | None = None,
             f'<p class="obs-outras"><b>Outras:</b> '
             f'{_esc(" · ".join(grupos["outras"]))}</p>')
     obs_html = "".join(obs_partes) or "<p class='vazio'>Sem observações.</p>"
+    # Legenda de referência (v2.6) — limites lidos do config com fallback
+    lim = _limites_status()
+    aprov, atenc, rec = lim["aprovado"], lim["atencao"], lim["recuperacao"]
+    if atenc > aprov:
+        atenc_txt = f"{aprov:.1f} a {atenc - 0.1:.1f}"
+    else:
+        atenc_txt = f"a partir de {aprov:.1f} (com ressalvas)"
+    if rec < aprov:
+        rec_txt = f"{rec:.1f} a {aprov - 0.1:.1f}"
+    else:
+        rec_txt = f"abaixo de {aprov:.1f}"
+    ref_lim = f"""<div class="ref-limites">
+        <h4>Referência para a nota</h4>
+        <div class="ref-linha"><span class="ref-dot" style="background:#1a7f37"></span><span><b>Aprovado:</b> a partir de {atenc:.1f}</span></div>
+        <div class="ref-linha"><span class="ref-dot" style="background:#b7791f"></span><span><b>Aprovado com atenção:</b> {atenc_txt}</span></div>
+        <div class="ref-linha"><span class="ref-dot" style="background:#c62828"></span><span><b>Recuperação:</b> {rec_txt}</span></div>
+      </div>"""
     data = datetime.now().strftime("%d/%m/%Y %H:%M")
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -910,25 +1031,41 @@ def gerar_html_individual(r: dict, nomes: dict | None = None,
 <title>Relatório Individual — {_esc(nome)}</title>
 <style>
   * {{ box-sizing:border-box; }}
-  body {{ font-family:'Segoe UI',Roboto,Arial,sans-serif; margin:0; color:#222; background:#fff; }}
-  .pagina {{ max-width:800px; margin:0 auto; padding:32px; }}
+  body {{ font-family:'Segoe UI',Roboto,Arial,sans-serif; margin:0; color:#222; background:#eef0f3; }}
+  .pagina {{ max-width:1000px; margin:0 auto; padding:32px; }}
   .capa {{ background:linear-gradient(135deg,#1a1a1a,#333); color:#fff; border-radius:14px;
            padding:24px 28px; margin-bottom:20px; }}
   .capa h1 {{ margin:0 0 4px; font-size:22px; }}
   .capa .sub {{ color:#ccc; font-size:13px; }}
   .capa .meta {{ margin-top:12px; display:flex; gap:18px; flex-wrap:wrap; font-size:12px; }}
   .capa .meta b {{ color:#fff; }}
-  .bloco {{ background:#fff; border-radius:12px; padding:18px 20px; margin-top:16px;
+  /* v2.6: card único horizontal, como no relatório do Sensei */
+  .individual-card {{ display:flex; flex-direction:column; gap:16px; }}
+  .bloco {{ background:#fff; border-radius:12px; padding:18px 20px;
             border:1px solid #e4e6ea; }}
   .bloco h2 {{ margin:0 0 10px; font-size:16px; color:#1a1a1a; }}
-  .nota-final {{ font-size:34px; font-weight:800; }}
-  .status {{ display:inline-block; padding:4px 12px; border-radius:20px; font-size:12px;
-             font-weight:700; color:#fff; margin-left:10px; }}
-  .mini-q {{ display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px; }}
+  /* topo: nota grande + status à esquerda; referência de limites à direita */
+  .bloco-topo {{ display:grid; grid-template-columns:auto 1fr; gap:12px 28px;
+                 align-items:center; }}
+  .bloco-topo h2 {{ grid-column:1 / -1; margin-bottom:2px; }}
+  .nota-wrap {{ display:flex; align-items:center; gap:14px; }}
+  .nota-final {{ font-size:38px; font-weight:800; line-height:1; }}
+  .status {{ display:inline-block; padding:4px 12px; border-radius:20px;
+             font-size:12px; font-weight:700; color:#fff; }}
+  .ref-limites {{ font-size:12px; color:#555; }}
+  .ref-limites h4 {{ margin:0 0 6px; font-size:12px; text-transform:uppercase;
+                     letter-spacing:.5px; color:#555; }}
+  .ref-limites .ref-linha {{ display:flex; align-items:center; gap:8px; margin:3px 0; }}
+  .ref-limites .ref-dot {{ width:9px; height:9px; border-radius:50%; display:inline-block; flex:none; }}
+  .ref-limites b {{ color:#333; }}
+  /* v2.6: Notas por Quesito × Marcações lado a lado em telas largas */
+  .ind-grid {{ display:grid; grid-template-columns:0.9fr 1.35fr; gap:16px;
+               align-items:start; }}
+  .mini-q {{ display:flex; align-items:center; gap:8px; margin:5px 0; font-size:12px; }}
   .mini-q-nome {{ width:70px; color:#555; }}
-  .mini-q-bar {{ flex:1; height:8px; background:#eef0f3; border-radius:4px; overflow:hidden; }}
+  .mini-q-bar {{ flex:1; height:9px; background:#eef0f3; border-radius:4px; overflow:hidden; }}
   .mini-q-fill {{ height:100%; border-radius:4px; }}
-  .mini-q-val {{ width:34px; text-align:right; font-weight:600; }}
+  .mini-q-val {{ width:36px; text-align:right; font-weight:600; }}
   .marc-bloco {{ margin:8px 0; }}
   .marc-q-nome {{ display:block; font-weight:700; color:#555; font-size:12px;
                   text-transform:uppercase; margin-bottom:4px; }}
@@ -936,12 +1073,15 @@ def gerar_html_individual(r: dict, nomes: dict | None = None,
   table.tab th, table.tab td {{ border:1px solid #e0e0e0; padding:4px 8px; text-align:center; }}
   table.tab th {{ background:#f4f5f7; color:#444; font-weight:600; }}
   table.tab td.crit {{ text-align:left; color:#333; }}
+  .freq-total {{ font-weight:700; color:#1f4e79; }}
   .obs-forte {{ color:#1a7f37; }}
   .obs-melhorar {{ color:#b7791f; }}
   .obs-outras {{ color:#666; }}
   .vazio {{ color:#999; font-size:12px; }}
   .rodape {{ margin-top:26px; padding-top:12px; border-top:1px solid #e4e6ea;
              font-size:11px; color:#888; text-align:center; }}
+  @media (max-width:920px) {{ .ind-grid {{ grid-template-columns:1fr; }}
+    .bloco-topo {{ grid-template-columns:1fr; gap:12px; }} }}
   @media print {{ body {{ background:#fff; }} .pagina {{ max-width:100%; padding:16px; }}
     .bloco {{ break-inside:avoid; border:none; }} .capa {{ border-radius:0; }} }}
 </style>
@@ -958,23 +1098,30 @@ def gerar_html_individual(r: dict, nomes: dict | None = None,
         <div><b>Gerado em:</b> {_esc(data)}</div>
       </div>
     </header>
-    <section class="bloco">
-      <h2>Nota Final</h2>
-      <div><span class="nota-final">{nota:.1f}</span>
-           <span class="status" style="background:{fg}">{_esc(_status_label(status))}</span></div>
-    </section>
-    <section class="bloco">
-      <h2>Notas por Quesito</h2>
-      {bars}
-    </section>
-    <section class="bloco">
-      <h2>Marcações do Exame</h2>
-      {marc_html}
-    </section>
-    <section class="bloco">
-      <h2>Observações</h2>
-      {obs_html}
-    </section>
+    <div class="individual-card">
+      <section class="bloco bloco-topo">
+        <h2>Nota Final</h2>
+        <div class="nota-wrap">
+          <span class="nota-final">{nota:.1f}</span>
+          <span class="status" style="background:{fg}">{_esc(_status_label(status))}</span>
+        </div>
+        {ref_lim}
+      </section>
+      <div class="ind-grid">
+        <section class="bloco">
+          <h2>Notas por Quesito</h2>
+          {bars}
+        </section>
+        <section class="bloco">
+          <h2>Marcações do Exame</h2>
+          {marc_html}
+        </section>
+      </div>
+      <section class="bloco">
+        <h2>Observações</h2>
+        {obs_html}
+      </section>
+    </div>
     <div class="rodape">Documento gerado automaticamente pelo Sistema Karate-Ashi.</div>
   </div>
 </body>
@@ -985,13 +1132,16 @@ def salvar_individuais_exame(resultados: list[dict],
                              dojo_id: str = "",
                              nomes: dict | None = None) -> list[Path]:
     """Gera um HTML individual por aluno (imprimir/exportar PDF) no MESMO
-    diretório do relatório do exame (destino_dir = pasta do exame)."""
+    diretório do relatório do exame (destino_dir = pasta do exame).
+    v2.5: nome do ARQUIVO usa o NOME do aluno (slug seguro), sem o ID
+    interno."""
     destino_dir = Path(destino_dir)
     destino_dir.mkdir(parents=True, exist_ok=True)
     salvos = []
     for r in resultados:
         aluno_id = str(r.get("aluno_id", "?"))
-        arquivo = destino_dir / f"relatorio_individual_{aluno_id}.html"
+        nome = (nomes or {}).get(aluno_id, "") or aluno_id
+        arquivo = destino_dir / f"relatorio_individual_{_slug_nome(nome)}.html"
         arquivo.write_text(
             gerar_html_individual(r, nomes, exame_id, dojo_id),
             encoding="utf-8")
