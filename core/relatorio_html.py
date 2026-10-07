@@ -1,4 +1,4 @@
-"""core/relatorio_html.py — Relatório visual (HTML autossuficiente) do Karate-Ashi v2.3.
+"""core/relatorio_html.py — Relatório visual (HTML autossuficiente) do Karate-Ashi v2.4.
 Gera HTML com CSS embutido (sem dependências externas), pronto para preview no
 Google Drive, impressão em A4 e arquivamento.
 Mudanças v2.1 (revisão do usuário):
@@ -25,13 +25,21 @@ Mudanças v2.2:
   11)  Relatório do Sensei ganha bloco "Resultado do Exame — Lista de Aprovação"
        (tabela Aluno | Faixa | Status, SEM nota e SEM ranking) para divulgação
        ao grupo de alunos/pais.
-Mudanças v2.3 (nova revisão do usuário):
+Mudanças v2.3 (revisão do usuário):
   12)  Bloco "Resultado do Exame — Lista de Aprovação" passa a exibir SOMENTE
        alunos aprovados (APROVADO/APROVADO_PONTO_ATENCAO), SEM o subtítulo de
        divulgação e com a coluna "Nova Faixa" (mesma progressão de faixas do
        ranking). Serve como lista oficial de divulgação ao grupo/pais.
   13)  Disposição dos cards de alunos do Sensei em 4 colunas (antes 2), com
        breakpoint responsivo (2 colunas em telas médias, 1 em telas pequenas).
+Mudanças v2.4 (novo layout do Sensei):
+  14)  Cards dos alunos em SEQUÊNCIA HORIZONTAL — um card por linha, ocupando
+       a largura total (grid de 1 coluna). Muito mais legível que 4 cards
+       estreitos empilhados: cada aluno vira uma "linha" de leitura completa.
+  15)  Em telas largas (>=900px), dentro de cada card o cabeçalho + mini
+       quesitos ocupam a largura total e as seções "Marcações por avaliador"
+       e "Observações dos avaliadores" ficam lado a lado (colunas 1.25fr/1fr),
+       aproveitando a largura extra do card.
 """
 from __future__ import annotations
 import html
@@ -319,7 +327,8 @@ def gerar_html_exame(
     avaliadores_map: dict | None = None,
 ) -> str:
     """HTML do relatório do Sensei (dojo) — com ranking + nova faixa (ponto 4)
-    + Lista de Aprovação (ponto 12, só aprovados, com Nova Faixa)."""
+    + Lista de Aprovação (ponto 12, só aprovados, com Nova Faixa) + cards
+    horizontais (ponto 14/15, v2.4)."""
     cards = "".join(_card_aluno_sensei(r, nomes, avaliadores_map) for r in resultados)
     ranking = _bloco_notas_quesito_sensei(resultados, nomes)
     aprovacao = _bloco_lista_aprovacao(resultados, nomes)
@@ -356,8 +365,9 @@ def gerar_html_exame(
   .bloco {{ background:#fff; border-radius:12px; padding:20px; margin-top:18px; box-shadow:0 1px 3px rgba(0,0,0,.08); }}
   .bloco h2 {{ margin:0 0 12px; font-size:18px; color:#1a1a1a; }}
   .sub-bloco {{ color:#666; font-size:13px; margin:-6px 0 12px; }}
-  /* v2.3: cards dos alunos em 4 colunas (antes 1fr 1fr) */
-  .alunos {{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }}
+  /* v2.4: cards dos alunos em SEQUÊNCIA HORIZONTAL — 1 card por linha,
+     largura total (antes: 4 colunas estreitas empilhadas) */
+  .alunos {{ display:grid; grid-template-columns:1fr; gap:16px; }}
   .card {{ background:#fff; border-radius:12px; padding:18px; box-shadow:0 1px 3px rgba(0,0,0,.08); }}
   .aluno-head {{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }}
   .aluno-head h3 {{ margin:0; font-size:18px; }}
@@ -391,11 +401,18 @@ def gerar_html_exame(
   .status-mini {{ display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700; }}
   .novafaixa {{ font-weight:700; color:#1f4e79; }}
   .vazio {{ color:#999; font-size:12px; }}
+  /* v2.4: card largo — cabeçalho + mini-quesitos no topo (largura total) e
+     Marcações × Observações lado a lado em telas largas */
+  @media (min-width:900px) {{
+    .card {{ display:grid; grid-template-columns:1.25fr 1fr; column-gap:20px; }}
+    .card .aluno-head, .card .mini-quesitos {{ grid-column:1 / -1; }}
+  }}
   @media print {{ body {{ background:#fff; }} .pagina {{ max-width:100%; padding:0; }}
                  .card, .bloco {{ box-shadow:none; break-inside:avoid; }} .capa {{ border-radius:0; }} }}
-  /* v2.3: breakpoints responsivos da grade de alunos */
-  @media (max-width:1100px) {{ .alunos {{ grid-template-columns:repeat(2,1fr); }} }}
-  @media (max-width:700px) {{ .alunos, .resumo {{ grid-template-columns:1fr; }} }}
+  /* v2.4: breakpoints responsivos (cards já 1 coluna; em telas menores as
+     seções voltam a empilhar) */
+  @media (max-width:899px) {{ .card {{ display:block; }} }}
+  @media (max-width:700px) {{ .resumo {{ grid-template-columns:1fr; }} }}
 </style>
 </head>
 <body>
@@ -738,7 +755,7 @@ def gerar_html_master(resultados_dojos: list[dict], regras: dict,
   .status-mini {{ display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700; }}
   @media print {{ body {{ background:#fff; }} .pagina {{ max-width:100%; padding:0; }}
                  .bloco {{ box-shadow:none; break-inside:avoid; }} }}
-  @media (max-width:700px) {{ .alunos, .resumo, .analise-grid {{ grid-template-columns:1fr; }} }}
+  @media (max-width:700px) {{ .resumo, .analise-grid {{ grid-template-columns:1fr; }} }}
 </style>
 </head>
 <body>
