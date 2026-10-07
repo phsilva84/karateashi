@@ -14,7 +14,7 @@
       "data_exame": "2026-10-04",
       "avaliadores": ["S01", "S04", "S05"],
       "status": "agendado",
-      "gerar_folhas": false
+      "gerar_folhas": true
     }
   ]
 }
