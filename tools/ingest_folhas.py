@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/ingest_folhas.py — Ingestão unificada scanner + fotos (v2col-4.3).
+"""tools/ingest_folhas.py — Ingestão unificada scanner + fotos (v2col-4.4).
 
 Segunda camada de entrada: além das FOTOS de celular, o sistema aceita folhas
 DIGITALIZADAS (scanner de mesa ou ADF). O objetivo é não depender da qualidade
@@ -23,6 +23,14 @@ Desambiguação de página (v4.3):
   QRs não decodificarem e o exame tiver múltiplas páginas, o processar
   falha com mensagem clara (nunca processa lixo).
 
+Arquivamento (v4.4):
+- O original processado com sucesso é MOVIDO para {--arquivo}/{exame_id}/,
+  onde {exame_id} vem do QR de exame (EXA-D01-2026-10). Exame não
+  identificado → {--arquivo}/SEM_EXAME/; páginas de exames distintos no
+  mesmo arquivo → {--arquivo}/MULTIPLO/.
+- Arquivo com ALGUMA página falha NÃO é movido (fica na entrada p/
+  reprocessar; idempotente).
+
 Saídas:
   - um JSON por aluno (schema v2.0) em --saida:
       {pagina.stem}_{aluno_id}.json
@@ -38,6 +46,7 @@ Uso:
         --entrada "G:/Meu Drive/documentos/KarateAshi_Exames/scans" ^
         --config config ^
         --saida output/omr ^
+        --arquivo output/scans_processados ^
         --origem scanner
 """
 from __future__ import annotations
@@ -126,7 +135,7 @@ def _expandir(caminho: Path, destino: Path) -> list[Path]:
 
 def _parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
-        description="Ingestão de folhas (scanner + fotos) — Karate-Ashi v2col-4.3")
+        description="Ingestão de folhas (scanner + fotos) — Karate-Ashi v2col-4.4")
     ap.add_argument("--entrada", required=True, type=Path,
                     help="pasta com os scans/fotos (lida recursivamente)")
     ap.add_argument("--config", type=Path, default=RAIZ / "config",
@@ -134,7 +143,9 @@ def _parse_args() -> argparse.Namespace:
     ap.add_argument("--saida", type=Path, default=RAIZ / "output" / "omr",
                     help="pasta para os JSONs por aluno (default: output/omr)")
     ap.add_argument("--arquivo", type=Path, default=None,
-                    help="pasta para arquivar os originais após processar (opcional)")
+                    help="pasta RAIZ para arquivar os originais após processar "
+                         "(cria subpasta por exame_id — ex.: "
+                         "output/scans_processados/EXA-D01-2026-10/; opcional)")
     ap.add_argument("--tmp", type=Path, default=RAIZ / "output" / "tmp_ingest",
                     help="pasta temporária para páginas expandidas de TIFF/PDF")
     ap.add_argument("--origem", choices=("auto", "scanner", "foto"),
@@ -196,6 +207,9 @@ def main() -> int:
             continue
 
         paginas_ok = True
+        # v4.4: exame(s) identificado(s) nas páginas deste arquivo — usado
+        # para arquivar em {--arquivo}/{exame_id}/.
+        exames_ids: set[str] = set()
         for pagina in paginas:
             if args.assumir_ordem_lote:
                 ordem_pagina += 1
@@ -232,17 +246,35 @@ def main() -> int:
                     json.dump(resultado, fh, ensure_ascii=False, indent=2)
 
                 metadados = resultado.get("metadados") or {}
+                # v4.4: coleta o exame_id do QR para o arquivamento em
+                # subpasta por exame.
+                exame_idx = metadados.get("exame_id")
+                if exame_idx:
+                    exames_ids.add(str(exame_idx))
                 obs = resultado.get("observacao_montada") or "-"
                 processadas.append((rotulo, aluno_id,
                                     metadados.get("faixa"), origem, obs))
                 print(f"[OK] {rotulo} | aluno {aluno_id} | faixa "
                       f"{metadados.get('faixa')} | {origem} | obs: {obs[:70]}")
 
-        # Decisão 2: arquiva o original SÓ se todas as páginas processaram.
-        # Se alguma página falhou, o arquivo fica na entrada para reprocessar.
+        # Decisão 2 (v4.4): arquiva o original em {--arquivo}/{exame_id}/ SÓ
+        # se todas as páginas processaram. Se alguma página falhou, o arquivo
+        # fica na entrada para reprocessar (idempotente).
         if args.arquivo and paginas_ok:
-            args.arquivo.mkdir(parents=True, exist_ok=True)
-            destino_arquivo = args.arquivo / arquivo.name
+            if len(exames_ids) == 1:
+                exame_cfg = sorted(exames_ids)[0]
+            elif exames_ids:
+                exame_cfg = "MULTIPLO"
+                print(f"[AVISO] {arquivo.name}: páginas com exames distintos "
+                      f"({','.join(sorted(exames_ids))}) — arquivando em "
+                      f"MULTIPLO/")
+            else:
+                exame_cfg = "SEM_EXAME"
+                print(f"[AVISO] {arquivo.name}: QRs não identificaram exame — "
+                      f"arquivando em SEM_EXAME/")
+            destino_pasta = args.arquivo / exame_cfg
+            destino_pasta.mkdir(parents=True, exist_ok=True)
+            destino_arquivo = destino_pasta / arquivo.name
             try:
                 shutil.move(str(arquivo), str(destino_arquivo))
             except OSError:
@@ -260,7 +292,7 @@ def main() -> int:
     # Resumo do lote — auditoria; o pipeline ignora este arquivo
     # (core/pipeline.carregar_jsons_omr exclui resumo_ingestao.json).
     resumo = {
-        "versao_ingest": "v2col-4.3-revisado",
+        "versao_ingest": "v2col-4.4",
         "gerado_em": time.strftime("%Y-%m-%d %H:%M:%S"),
         "total_processadas": len(processadas),
         "total_falhas": len(falhas),

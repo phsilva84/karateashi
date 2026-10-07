@@ -1,4 +1,8 @@
-name: Pipeline Karate-Ashi v2.1 (OMR + Engine + Relatórios → Drive)
+name: Pipeline Karate-Ashi v2.2 (OMR + Engine + Relatórios → Drive)
+
+# v2.2: arquivamento dos scans passa a ser MOVE REMOTO por exame
+# (rclone movefile da raiz gdrive:scans -> gdrive:scans/processados/<exame_id>/),
+# eliminando a re-ingestão de folhas antigas a cada run.
 
 on:
   schedule:
@@ -138,10 +142,30 @@ jobs:
             echo "tem_folhas=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Mover scans processados (idempotência persistente no Drive)
+      - name: Arquivar scans processados no Drive (move remoto p/ processados/<exame_id>)
         run: |
-          rclone move output/scans_processados/ "gdrive:scans/processados/" \
-            --transfers 8 || true
+          # v2.2: MOVE de verdade na nuvem, por arquivo. O ingest já gravou
+          # o original em output/scans_processados/<exame_id>/ (ingest v4.4).
+          # Para cada arquivo: remove da raiz gdrive:scans e arquiva em
+          # gdrive:scans/processados/<exame_id>/. Assim a raiz só mantém
+          # folhas ainda NÃO processadas.
+          if [ -d output/scans_processados ]; then
+            found=0
+            while IFS= read -r f; do
+              rel="${f#output/scans_processados/}"        # ex.: EXA-D01-2026-10/img123.png
+              arquivo="${rel##*/}"                        # ex.: img123.png
+              echo "[INFO] Arquivando ${arquivo} -> processados/${rel}"
+              rclone movefile "gdrive:scans/${arquivo}" \
+                              "gdrive:scans/processados/${rel}" ||
+                echo "[AVISO] ${arquivo}: movefile falhou (ausente na raiz ou já arquivado)"
+              found=$((found+1))
+            done < <(find output/scans_processados -type f)
+            if [ "$found" -eq 0 ]; then
+              echo "[INFO] Nenhum scan processado para arquivar."
+            fi
+          else
+            echo "[INFO] Sem pasta output/scans_processados — nada a arquivar."
+          fi
 
       - name: Upload JSONs OMR
         if: steps.ingest.outputs.tem_folhas == 'true'
