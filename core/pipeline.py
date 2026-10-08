@@ -1,4 +1,4 @@
-"""core/pipeline.py — Integração OMR → engine → relatórios (Karate-Ashi v2.3).
+"""core/pipeline.py — Integração OMR → engine → relatórios (Karate-Ashi v2.4).
 Orquestra: lê os JSONs gerados pelo ingest_folhas (OMR), agrega as folhas por
 aluno (múltiplos avaliadores), chama o motor (core.engine.processa_aluno) por
 faixa e gera os relatórios visuais (HTML) por exame/finalidade.
@@ -25,9 +25,15 @@ v2.3 (correções de integridade — revisão pós-CI):
     marcou AUSENTE, o aluno não é avaliado — vira AUSENTE (se todos) ou
     REVISAO_PENDENTE (se divergente), nunca APROVADO com presença falsa.
 
+v2.4 (novo — master v3.0): resultado["notas_por_avaliador"] — nota FINAL por
+avaliador individual (e quesitos), usada pelo bloco "Consistência entre
+Avaliadores (lisura)" do relatório master: Δ máx−mín > 3,0 → badge REVER.
+
 Presença: folha com presença AUSENTE → aluno AUSENTE, sem avaliar frequências.
+
 Nomes: relatórios usam o nome COMPLETO (data/cadastro/alunos.json). As FOLHAS
 usam abreviar_nome() por causa do espaço limitado.
+
 Avaliadores: id -> nome via data/cadastro/avaliadores.json ou
 config/avaliadores.json (S02 -> Sensei Fabio, etc.).
 
@@ -110,7 +116,6 @@ def converter_frequencias_omr(folha: dict, matriz_faixa: dict,
     """Converte as chaves posicionais (c1..cN) do OMR em nomes de critérios.
     A matriz da faixa é a fonte única de interpretação: a posição N da
     leitura óptica corresponde SEMPRE ao critério N da matriz vigente.
-
     modo_presenca=True (padrão): qualquer balão marcado conta como 1
     (interpretação por presença — um avaliador contribui no máx. 1 por
     critério, independente da contagem bruta do OMR).
@@ -138,7 +143,8 @@ def converter_frequencias_omr(folha: dict, matriz_faixa: dict,
 def carregar_jsons_omr(pasta_omr: Path) -> list[dict]:
     """Lê todos os JSONs de folhas gerados pelo ingest_folhas.
     Anexa '_arquivo' (nome do arquivo) para permitir ordenação cronológica
-    na deduplicação por avaliador (imgYYYYMMDD_HHMMSS = ordem do scan)."""
+    na deduplicação por avaliador (imgYYYYMMDD_HHMMSS = ordem do scan).
+    """
     if not pasta_omr.is_dir():
         return []
     folhas = []
@@ -290,6 +296,8 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
     - Fix 1: deduplica re-scans (1 por aluno+avaliador, o mais recente).
     - Fix 2: presença por consenso — se QUALQUER avaliador marcou AUSENTE, o
       aluno não é avaliado (AUSENTE se todos; REVISAO_PENDENTE se divergente).
+    - v2.4: grava notas_por_avaliador (nota final por avaliador individual)
+      para o bloco de Consistência (lisura) do master v3.0.
     """
     folhas = carregar_jsons_omr(pasta_omr)
     folhas = deduplicar_por_avaliador(folhas)   # Fix 1
@@ -317,6 +325,7 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
                 "frequencias_por_avaliador": [],
                 "avaliadores_ids": [_mapear_avaliador(av, i)
                                     for i, av in enumerate(avaliadores)],
+                "notas_por_avaliador": [],   # v2.4: sem notas (não avaliado)
                 "incidentes": [f"presenca_divergente:{','.join(presencas)}"],
             })
             continue
@@ -336,6 +345,22 @@ def processar_folhas_omr(pasta_omr: Path, cfg: Path) -> list[dict]:
         resultado["frequencias_reais"] = freq_reais
         resultado["frequencias_por_avaliador"] = freq_por_av
         resultado["avaliadores_ids"] = av_ids
+        # v2.4 (master v3.0): nota FINAL por avaliador individual — usado no
+        # bloco de Consistência (lisura): Δ máx−mín > 3,0 → revisão da banca.
+        notas_por_av = []
+        for idx_av, av in enumerate(avaliadores):
+            lote_av = montar_lote_engine(aluno_id, faixa, [av], matriz)
+            r_av = processa_aluno(lote_av, cfg, faixa)
+            _aplicar_regra_atencao(r_av)
+            notas_por_av.append({
+                "avaliador": _mapear_avaliador(av, idx_av),
+                "nota": float((r_av.get("nota_final") or 0.0)),
+                "quesitos": {
+                    q: float((r_av.get("quesitos", {}).get(q, {}) or {}).get("nota", 0.0) or 0.0)
+                    for q in r_av.get("quesitos", {})
+                },
+            })
+        resultado["notas_por_avaliador"] = notas_por_av
         resultados.append(resultado)
     return resultados
 
@@ -570,7 +595,7 @@ def _enviar_staging_para_drive(staging: Path, rel_dir: Path) -> bool:
 def main(argv: list[str] | None = None) -> int:
     """CLI: python core/pipeline.py --config config --data data --output output [--pasta-omr ...] [--no-drive]"""
     ap = argparse.ArgumentParser(
-        description="Pipeline Karate-Ashi v2.3 (OMR → engine → relatórios)")
+        description="Pipeline Karate-Ashi v2.4 (OMR → engine → relatórios)")
     ap.add_argument("--config", type=Path, default=Path("config"),
                     help="pasta de configuração (config/)")
     ap.add_argument("--data", type=Path, default=Path("data"),
